@@ -42,7 +42,10 @@ async def ping() -> bool:
                 f"{BASE_URL}{PING_ENDPOINT}",
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
             ) as resp:
-                return resp.status == 200
+                if resp.status != 200:
+                    return False
+                data = await resp.json(content_type=None)
+                return data.get("status") == "ok"
     except Exception as e:
         logger.warning(f"[PayVerify] ping failed: {e}")
         return False
