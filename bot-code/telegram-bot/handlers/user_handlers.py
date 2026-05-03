@@ -25,10 +25,10 @@ from keyboards import (
     main_menu_keyboard, force_join_keyboard, buy_otp_keyboard,
     service_select_keyboard, service_search_results_keyboard,
     waiting_keyboard, deposit_keyboard, back_keyboard,
-    admin_refund_keyboard
+    admin_refund_keyboard, deposit_amount_keyboard, deposit_payment_keyboard
 )
 from utils import check_channel_membership, format_balance, time_elapsed, time_remaining
-from config import ADMIN_ID, ADMIN_IDS, SERVICE_NAME, SUPPORT_USERNAME, QR_CODE_FILE
+from config import ADMIN_ID, ADMIN_IDS, SERVICE_NAME, SUPPORT_USERNAME, QR_CODE_FILE, VERIFY_API_KEY, VERIFY_MERCHANT_ID, PAYMENT_MAX_TRIES, UPI_ID
 from ui import header, field, card, footer, DIV, BAR, safe_md
 import os
 import asyncio
@@ -913,13 +913,256 @@ async def auto_cancel_expired(context: ContextTypes.DEFAULT_TYPE):
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    settings = await get_settings()
+    min_dep = float(settings.get("min_deposit", 1))
+    text = (
         f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-        f"{card(['⚙️  Payment system upgrade ho raha hai', '🔜  Jald hi available hoga', f'❓  Help: {SUPPORT_USERNAME}'])}\n\n"
+        f"💳  Kitna deposit karna chahte ho?\n\n"
+        f"{card([f'📌  Minimum deposit:  *₹{min_dep:g}*', '⚡  UPI QR scan karke pay karo', '✅  Automatic verify hoga'])}\n\n"
         f"{DIV}\n"
-        f"_Admin se contact karo for manual deposit._",
-        reply_markup=back_keyboard(),
-        parse_mode="Markdown",
+        f"👇  Amount select karo:"
+    )
+    await query.edit_message_text(text, reply_markup=deposit_amount_keyboard(), parse_mode="Markdown")
+
+
+async def deposit_amount_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    try:
+        base_amount = float(query.data.replace("deposit_amt_", ""))
+    except Exception:
+        await query.answer("❌ Invalid amount.", show_alert=True)
+        return
+    await _show_deposit_qr(query, context, user_id, base_amount)
+
+
+async def deposit_custom_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["waiting_for"] = "deposit_custom_amount"
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="deposit")]])
+    settings = await get_settings()
+    min_dep = float(settings.get("min_deposit", 1))
+    text = (
+        f"{header('CUSTOM AMOUNT', '✏️', '✏️')}\n\n"
+        f"💬  Apna deposit amount type karke bhejo\n\n"
+        f"{card([f'📌  Minimum:  *₹{min_dep:g}*', '📝  Example:  `300`'])}\n\n"
+        f"{DIV}\n"
+        f"👇  Amount type karo:"
+    )
+    await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def _show_deposit_qr(query, context, user_id: int, base_amount: float):
+    """Generate unique-amount QR and show payment screen to user."""
+    from payment_verifier import generate_unique_amount, generate_upi_qr_bytes
+    from database import create_deposit, get_settings
+    settings = await get_settings()
+    min_dep = float(settings.get("min_deposit", 1))
+    if base_amount < min_dep:
+        await query.answer(f"❌ Minimum deposit ₹{min_dep:g} hai.", show_alert=True)
+        return
+    unique_amount = generate_unique_amount(base_amount)
+    deposit_id = await create_deposit(user_id, "", unique_amount)
+    context.user_data["pending_deposit"] = {
+        "base_amount": base_amount,
+        "unique_amount": unique_amount,
+        "deposit_id": deposit_id,
+        "tries": 0,
+    }
+    tries_left = PAYMENT_MAX_TRIES
+    try:
+        qr_buf = generate_upi_qr_bytes(UPI_ID, unique_amount)
+        caption = (
+            f"{header('SCAN & PAY', '💳', '💳')}\n\n"
+            f"{field('Amount', f'*₹{unique_amount:.2f}*', '💰')}\n"
+            f"{field('UPI ID', f'`{UPI_ID}`', '📲')}\n\n"
+            f"{card(['⚠️  *IMPORTANT:*', f'   Exactly  *₹{unique_amount:.2f}*  hi pay karo', '   Alag amount mein verify nahi hoga'])}\n\n"
+            f"{DIV}\n"
+            f"📱  _QR scan karo ya UPI ID se manually pay karo_\n"
+            f"✅  _Pay karne ke baad \"I Have Paid\" dabao_"
+        )
+        await query.message.reply_photo(
+            photo=qr_buf,
+            caption=caption,
+            reply_markup=deposit_payment_keyboard(tries_left),
+            parse_mode="Markdown",
+        )
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"[DEPOSIT] QR generation failed: {e}")
+        await query.edit_message_text(
+            f"{header('PAY NOW', '💳', '💳')}\n\n"
+            f"{field('Amount', f'*₹{unique_amount:.2f}*', '💰')}\n"
+            f"{field('UPI ID', f'`{UPI_ID}`', '📲')}\n\n"
+            f"{card(['⚠️  *IMPORTANT:*', f'   Exactly  *₹{unique_amount:.2f}*  hi pay karo'])}\n\n"
+            f"{DIV}\n"
+            f"✅  _Pay karne ke baad \"I Have Paid\" dabao_",
+            reply_markup=deposit_payment_keyboard(tries_left),
+            parse_mode="Markdown",
+        )
+
+
+async def _show_deposit_qr_from_message(message, context, user_id: int, base_amount: float):
+    """Same as _show_deposit_qr but triggered from a text message (custom amount input)."""
+    from payment_verifier import generate_unique_amount, generate_upi_qr_bytes
+    from database import create_deposit, get_settings
+    settings = await get_settings()
+    min_dep = float(settings.get("min_deposit", 1))
+    if base_amount < min_dep:
+        await message.reply_text(f"❌ Minimum deposit ₹{min_dep:g} hai.")
+        return
+    unique_amount = generate_unique_amount(base_amount)
+    deposit_id = await create_deposit(user_id, "", unique_amount)
+    context.user_data["pending_deposit"] = {
+        "base_amount": base_amount,
+        "unique_amount": unique_amount,
+        "deposit_id": deposit_id,
+        "tries": 0,
+    }
+    tries_left = PAYMENT_MAX_TRIES
+    try:
+        qr_buf = generate_upi_qr_bytes(UPI_ID, unique_amount)
+        caption = (
+            f"{header('SCAN & PAY', '💳', '💳')}\n\n"
+            f"{field('Amount', f'*₹{unique_amount:.2f}*', '💰')}\n"
+            f"{field('UPI ID', f'`{UPI_ID}`', '📲')}\n\n"
+            f"{card(['⚠️  *IMPORTANT:*', f'   Exactly  *₹{unique_amount:.2f}*  hi pay karo', '   Alag amount mein verify nahi hoga'])}\n\n"
+            f"{DIV}\n"
+            f"📱  _QR scan karo ya UPI ID se manually pay karo_\n"
+            f"✅  _Pay karne ke baad \"I Have Paid\" dabao_"
+        )
+        await message.reply_photo(
+            photo=qr_buf,
+            caption=caption,
+            reply_markup=deposit_payment_keyboard(tries_left),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.error(f"[DEPOSIT] QR generation failed: {e}")
+        await message.reply_text(
+            f"{header('PAY NOW', '💳', '💳')}\n\n"
+            f"{field('Amount', f'*₹{unique_amount:.2f}*', '💰')}\n"
+            f"{field('UPI ID', f'`{UPI_ID}`', '📲')}\n\n"
+            f"{card(['⚠️  *IMPORTANT:*', f'   Exactly  *₹{unique_amount:.2f}*  hi pay karo'])}\n\n"
+            f"{DIV}\n"
+            f"✅  _Pay karne ke baad \"I Have Paid\" dabao_",
+            reply_markup=deposit_payment_keyboard(tries_left),
+            parse_mode="Markdown",
+        )
+
+
+async def _edit_deposit_message(query, text: str, reply_markup, parse_mode="Markdown"):
+    """Edit either caption (photo msg) or text (text msg) safely."""
+    try:
+        await query.edit_message_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        try:
+            await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception as e:
+            logger.error(f"[DEPOSIT] edit message failed: {e}")
+
+
+async def i_have_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("⏳ Verify ho raha hai...", show_alert=False)
+    user_id = query.from_user.id
+    pending = context.user_data.get("pending_deposit")
+    if not pending:
+        await query.answer("❌ Koi active deposit nahi mili. Deposit dobara shuru karo.", show_alert=True)
+        return
+    tries = pending.get("tries", 0) + 1
+    pending["tries"] = tries
+    tries_left = PAYMENT_MAX_TRIES - tries
+    if tries > PAYMENT_MAX_TRIES:
+        context.user_data.pop("pending_deposit", None)
+        from database import reject_deposit
+        try:
+            await reject_deposit(pending["deposit_id"])
+        except Exception:
+            pass
+        await _edit_deposit_message(
+            query,
+            f"{header('MAX TRIES REACHED', '🚫', '🚫')}\n\n"
+            f"❌  5 baar verify kiya — payment nahi mili\n\n"
+            f"{card(['📞  Admin se contact karo', f'   {SUPPORT_USERNAME}', '', '🆔  Apna User ID bhi bata dena:', f'   `{user_id}`'])}\n\n"
+            f"{DIV}",
+            reply_markup=back_keyboard(),
+        )
+        return
+    from payment_verifier import verify_payment
+    unique_amount = pending["unique_amount"]
+    base_amount = pending["base_amount"]
+    deposit_id = pending["deposit_id"]
+    result = await verify_payment(VERIFY_API_KEY, VERIFY_MERCHANT_ID, unique_amount)
+    if result["success"]:
+        context.user_data.pop("pending_deposit", None)
+        from database import approve_deposit
+        await approve_deposit(deposit_id, base_amount)
+        user_db = await get_user(user_id)
+        new_balance = float(user_db.get("balance", 0)) if user_db else base_amount
+        utr_line = f"{field('UTR', f'`{result[\"utr\"]}`', '🔖')}\n" if result.get("utr") else ""
+        text = (
+            f"{header('PAYMENT VERIFIED', '✅', '✅')}\n\n"
+            f"{field('Paid', f'*₹{unique_amount:.2f}*', '💳')}\n"
+            f"{field('Credited', f'*₹{base_amount:g}*', '💰')}\n"
+            f"{field('New Balance', f'*₹{new_balance:.2f}*', '🏦')}\n"
+            f"{utr_line}\n"
+            f"{card(['🎉  Balance instantly credited!', '🛒  Ab OTP buy kar sakte ho'])}\n\n"
+            f"{DIV}"
+        )
+        await _edit_deposit_message(query, text, reply_markup=main_menu_keyboard())
+        logger.info(f"[DEPOSIT] user={user_id} credited ₹{base_amount} | UTR={result.get('utr')} | unique_amt={unique_amount}")
+    else:
+        if tries_left <= 0:
+            context.user_data.pop("pending_deposit", None)
+            from database import reject_deposit
+            try:
+                await reject_deposit(deposit_id)
+            except Exception:
+                pass
+            await _edit_deposit_message(
+                query,
+                f"{header('MAX TRIES REACHED', '🚫', '🚫')}\n\n"
+                f"❌  5 baar verify kiya — payment nahi mili\n\n"
+                f"{card(['📞  Admin se contact karo', f'   {SUPPORT_USERNAME}', '', '🆔  Apna User ID bhi bata dena:', f'   `{user_id}`'])}\n\n"
+                f"{DIV}",
+                reply_markup=back_keyboard(),
+            )
+        else:
+            await _edit_deposit_message(
+                query,
+                f"{header('PAYMENT NOT FOUND', '❌', '❌')}\n\n"
+                f"{field('Looking for', f'*₹{unique_amount:.2f}*', '💰')}\n\n"
+                f"{card(['⚠️  Abhi tak payment nahi mili', '⏳  Pay kar diya? Thodi der mein dobara try karo', f'🔁  Tries baaki:  *{tries_left}/{PAYMENT_MAX_TRIES}*'])}\n\n"
+                f"{DIV}\n"
+                f"_Make sure exactly ₹{unique_amount:.2f} pay kiya ho_",
+                reply_markup=deposit_payment_keyboard(tries_left),
+            )
+        logger.info(f"[DEPOSIT] user={user_id} verify failed (try {tries}) | unique_amt={unique_amount} | err={result.get('error')}")
+
+
+async def deposit_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pending = context.user_data.pop("pending_deposit", None)
+    if pending:
+        from database import reject_deposit
+        try:
+            await reject_deposit(pending["deposit_id"])
+        except Exception:
+            pass
+    await _edit_deposit_message(
+        query,
+        f"{header('DEPOSIT CANCELLED', '❌', '❌')}\n\n"
+        f"Deposit cancel kar diya gaya.\n\n"
+        f"{DIV}",
+        reply_markup=main_menu_keyboard(),
     )
 
 

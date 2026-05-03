@@ -127,6 +127,27 @@ def deposit_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def deposit_amount_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("💵  ₹50",   callback_data="deposit_amt_50"),
+         InlineKeyboardButton("💵  ₹100",  callback_data="deposit_amt_100")],
+        [InlineKeyboardButton("💵  ₹200",  callback_data="deposit_amt_200"),
+         InlineKeyboardButton("💵  ₹500",  callback_data="deposit_amt_500")],
+        [InlineKeyboardButton("💵  ₹1000", callback_data="deposit_amt_1000")],
+        [InlineKeyboardButton("✏️  Custom Amount", callback_data="deposit_custom")],
+        [InlineKeyboardButton("🔙  Back to Menu",  callback_data="main_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def deposit_payment_keyboard(tries_left: int = 5):
+    keyboard = [
+        [InlineKeyboardButton(f"✅  I Have Paid  ({tries_left} tries left)", callback_data="i_have_paid")],
+        [InlineKeyboardButton("❌  Cancel Deposit", callback_data="deposit_cancel")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def back_keyboard():
     keyboard = [
         [InlineKeyboardButton("🔙  Back to Menu", callback_data="main_menu")],

@@ -12,7 +12,9 @@ from handlers.user_handlers import (
     refer_callback, support_callback, history_callback,
     history_filter_callback, history_service_filter_callback, buy_otp_callback,
     buy_service_callback, confirm_buy_callback, cancel_order_callback,
-    deposit_callback, handle_screenshot,
+    deposit_callback, deposit_amount_callback, deposit_custom_callback,
+    i_have_paid_callback, deposit_cancel_callback,
+    handle_screenshot,
     refund_callback, handle_refund_video, refund_pick_callback,
     service_search_callback, service_page_callback,
 )
@@ -162,13 +164,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-    if context.user_data.get("waiting_for") == "deposit_amount":
+    if context.user_data.get("waiting_for") == "deposit_custom_amount":
         context.user_data.pop("waiting_for", None)
-        context.user_data.pop("deposit_amount", None)
-        await update.message.reply_text(
-            "⚙️ Payment system upgrade ho raha hai.\nThodi der mein available hoga. Admin se contact karo.",
-            reply_markup=main_menu_keyboard(),
-        )
+        raw = update.message.text.strip().replace("₹", "").replace(",", "")
+        try:
+            base_amount = float(raw)
+        except ValueError:
+            from keyboards import deposit_amount_keyboard
+            await update.message.reply_text(
+                "❌ Invalid amount. Sirf number type karo (jaise `300`).",
+                reply_markup=deposit_amount_keyboard(),
+                parse_mode="Markdown",
+            )
+            return
+        from handlers.user_handlers import _show_deposit_qr_from_message
+        await _show_deposit_qr_from_message(update.message, context, update.effective_user.id, base_amount)
         return
 
     await update.message.reply_text("Use the menu buttons to navigate.")
@@ -457,6 +467,10 @@ def main():
     app.add_handler(CallbackQueryHandler(confirm_buy_callback, pattern="^confirm_buy_"))
     app.add_handler(CallbackQueryHandler(cancel_order_callback, pattern="^cancel_order$"))
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern="^deposit$"))
+    app.add_handler(CallbackQueryHandler(deposit_amount_callback, pattern="^deposit_amt_"))
+    app.add_handler(CallbackQueryHandler(deposit_custom_callback, pattern="^deposit_custom$"))
+    app.add_handler(CallbackQueryHandler(i_have_paid_callback, pattern="^i_have_paid$"))
+    app.add_handler(CallbackQueryHandler(deposit_cancel_callback, pattern="^deposit_cancel$"))
 
     app.add_handler(CallbackQueryHandler(admin_back_callback, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_stats_callback, pattern="^admin_stats$"))
