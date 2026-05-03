@@ -80,8 +80,6 @@ async def init_db():
         await db.stock.create_index("service")
         await db.verified_utrs.create_index("utr", unique=True)
         await db.verified_utrs.create_index("created_at", expireAfterSeconds=30 * 24 * 60 * 60)
-        # 📱 SMS cache shared between userbot process & main bot process.
-        # TTL = 10 min (matches sms_verifier.CACHE_TTL_SECONDS).
         await db.sms_cache.create_index("utr", unique=True)
         await db.sms_cache.create_index("ts", expireAfterSeconds=600)
         # 🔔 One-time migration: enable alerts for existing per-bot docs that

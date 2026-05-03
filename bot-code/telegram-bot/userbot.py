@@ -250,28 +250,6 @@ async def main():
 
             logger.info(f"[USERBOT] Step1: group check passed")
 
-            # ── SMS group routing ────────────────────────────────────────
-            # Bot API can't read other bots' messages, so the SMS forwarder
-            # (a 3rd-party bot) is invisible to the main bot. Userbot CAN see
-            # it, so we feed those messages into the SMS verifier cache.
-            try:
-                from sms_verifier import SMS_GROUP_ID as _SMS_GID, verifier as _sms
-                if _SMS_GID and chat_id == str(_SMS_GID):
-                    if text:
-                        result = _sms.add_from_message(text)
-                        logger.info(f"[USERBOT][SMS] processed group message: {result}")
-                        # Cross-process share: write parsed credit SMS to DB so
-                        # the main bot (separate Python process) can find it.
-                        if result.get("status") == "cached":
-                            try:
-                                from database import sms_cache_set
-                                await sms_cache_set(result["utr"], result["amount"])
-                                logger.info(f"[USERBOT][SMS] DB cache wrote UTR={result['utr']}")
-                            except Exception as _de:
-                                logger.warning(f"[USERBOT][SMS] DB cache write failed: {_de}")
-                    return
-            except Exception as _se:
-                logger.warning(f"[USERBOT][SMS] routing failed: {_se}")
 
             otp_group_id = await get_otp_group_id()
             logger.info(f"[USERBOT] Step2: otp_group_id={otp_group_id}, chat_id={chat_id}")

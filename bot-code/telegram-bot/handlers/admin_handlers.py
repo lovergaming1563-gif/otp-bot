@@ -635,105 +635,32 @@ async def admin_deposit_stats_callback(update: Update, context: ContextTypes.DEF
 
 
 async def admin_sms_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show SMS auto-verifier health/stats + ON/OFF toggle."""
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
         return
-    from sms_verifier import verifier as _sms, SMS_GROUP_ID, SMS_SENDER_FILTER, CACHE_TTL_SECONDS
-    from database import get_settings
-    s = await get_settings()
-    enabled = s.get("sms_verify_enabled", True)
-    toggle_label = "🔴 Turn OFF Auto-Verify" if enabled else "🟢 Turn ON Auto-Verify"
-    status_emoji = "✅ Configured" if _sms.is_configured() else "❌ NOT configured"
-    enabled_emoji = "🟢 ON" if enabled else "🔴 OFF"
-
-    def _fmt(dt):
-        if not dt:
-            return "_never_"
-        delta = (datetime.datetime.utcnow() - dt).total_seconds()
-        if delta < 60:
-            return f"{int(delta)}s ago"
-        if delta < 3600:
-            return f"{int(delta/60)}m ago"
-        return f"{int(delta/3600)}h ago"
-
-    text = (
-        f"📱 *SMS Auto-Verify Status*\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚙️  Config:  {status_emoji}\n"
-        f"🔘  Toggle:  {enabled_emoji}\n"
-        f"📥  Group ID:  `{SMS_GROUP_ID or 'NOT SET'}`\n"
-        f"🏷  Sender filter:  `{SMS_SENDER_FILTER}`\n"
-        f"⏱  Cache TTL:  {CACHE_TTL_SECONDS // 60} min\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📊 *Lifetime counters*\n"
-        f"📩 Messages seen:  *{_sms.total_seen}*\n"
-        f"✅ Credits cached:  *{_sms.total_parsed}*\n"
-        f"⏭ Skipped:  *{_sms.total_skipped}*\n"
-        f"💾 Cached now:  *{len(_sms.cache)}*\n\n"
-        f"🕒 Last message:  {_fmt(_sms.last_message_at)}\n"
-        f"🕒 Last credit:  {_fmt(_sms.last_credit_at)}\n"
-    )
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(toggle_label, callback_data="toggle_sms_verify")],
-        [InlineKeyboardButton("🔄 Refresh", callback_data="admin_sms_status")],
-        [InlineKeyboardButton("🔙 Back", callback_data="admin_settings")],
-    ])
-    await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    await query.edit_message_text(
+        "⚠️ SMS Auto-Verify system removed.\nNaya payment method configure ho raha hai.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_settings")]]),
+    )
 
 
 async def toggle_sms_verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Flip the sms_verify_enabled flag in settings."""
     query = update.callback_query
-    await query.answer()
-    if not is_admin(query.from_user.id):
-        return
-    from database import get_settings, update_settings
-    s = await get_settings()
-    new_val = not s.get("sms_verify_enabled", True)
-    await update_settings("sms_verify_enabled", new_val)
-    await query.answer(f"SMS Auto-Verify {'ENABLED' if new_val else 'DISABLED'}", show_alert=True)
-    # Re-render status panel
-    await admin_sms_status_callback(update, context)
+    await query.answer("SMS verify system removed.", show_alert=True)
 
 
 async def admin_used_utrs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show last 50 UTRs already auto-credited (anti-reuse audit list)."""
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
         return
-    from database import get_recent_used_utrs
-    rows = await get_recent_used_utrs(limit=50)
-    if not rows:
-        body = "_Abhi tak koi UTR auto-verify nahi hua._"
-    else:
-        lines = []
-        for i, r in enumerate(rows, 1):
-            ts = r.get("created_at")
-            ts_str = ts.strftime("%d-%b %H:%M") if ts else "?"
-            uid = r.get("user_id", "?")
-            amt = r.get("amount", 0)
-            utr = r.get("utr", "?")
-            lines.append(f"`{i:>2}.` `{utr}`  ₹{amt:.0f}  • `{uid}` • {ts_str}")
-        body = "\n".join(lines)
-    text = (
-        f"📜 *Used UTRs (last 50)*\n\n"
-        f"_Format: UTR  ₹amount • user_id • time_\n\n"
-        f"{body}"
-    )
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="admin_used_utrs")],
-        [InlineKeyboardButton("🔙 Back", callback_data="admin_settings")],
-    ])
-    try:
-        await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
-    except Exception:
-        # Markdown parse fail fallback
-        await query.edit_message_text(text, reply_markup=kb)
+    await query.edit_message_text(
+        "⚠️ UTR system removed. Naya payment method configure ho raha hai.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_settings")]]),
+    )
 
 
 async def set_price_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

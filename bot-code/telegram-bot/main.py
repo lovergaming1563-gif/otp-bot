@@ -12,10 +12,9 @@ from handlers.user_handlers import (
     refer_callback, support_callback, history_callback,
     history_filter_callback, history_service_filter_callback, buy_otp_callback,
     buy_service_callback, confirm_buy_callback, cancel_order_callback,
-    deposit_callback, paid_callback, handle_screenshot, handle_utr_input,
+    deposit_callback, handle_screenshot,
     refund_callback, handle_refund_video, refund_pick_callback,
     service_search_callback, service_page_callback,
-    deposit_upi_callback,
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
@@ -163,231 +162,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-    if context.user_data.get("waiting_for") == "utr":
-        from handlers.user_handlers import handle_utr_input
-        await handle_utr_input(update, context)
-        return
-
     if context.user_data.get("waiting_for") == "deposit_amount":
-        from config import QR_CODE_FILE, SUPPORT_USERNAME
-        from database import get_upi_id, get_min_deposit
-        from ui import header, card, DIV
-        from payment_verifier import is_configured as pv_configured
-        import os
-        raw = update.message.text.strip().replace("₹", "").replace(",", "").strip()
-        try:
-            amount = float(raw)
-        except ValueError:
-            await update.message.reply_text(
-                f"{header('INVALID AMOUNT', '❌', '❌')}\n\n"
-                f"⚠️  Sirf number type kar.\n\n"
-                f"📝  *Examples:*  `50`, `150`, `500`",
-                parse_mode="Markdown"
-            )
-            return
-        min_dep = await get_min_deposit()
-        if amount < min_dep:
-            await update.message.reply_text(
-                f"{header('AMOUNT TOO LOW', '❌', '❌')}\n\n"
-                f"⚠️  *Minimum deposit:*  ₹{min_dep:.0f}\n"
-                f"💰  *You entered:*  ₹{amount:.2f}\n\n"
-                f"📝  Try again with ≥ ₹{min_dep:.0f}",
-                parse_mode="Markdown"
-            )
-            return
-
-        context.user_data["deposit_amount"] = amount
-        upi_id_dyn = await get_upi_id()
-        upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(not configured — contact support)_"
-
-        if pv_configured():
-            # ── Auto-verify mode via new payment API ──────────────────────
-            context.user_data.pop("waiting_for", None)
-            payment_text = (
-                f"{header(f'PAY ₹{amount:.0f}', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{amount:.2f}', upi_line, '📲  *Kisi bhi UPI app* se payment karo', '⚡  *Auto-verify:*  Instant'])}\n\n"
-                f"{DIV}\n"
-                f"⏳  _Payment detect hote hi automatically credit ho jayega (max 10 min)_"
-            )
-            if os.path.exists(QR_CODE_FILE):
-                try:
-                    with open(QR_CODE_FILE, "rb") as qr_file:
-                        sent_msg = await update.message.reply_photo(
-                            photo=qr_file,
-                            caption=payment_text,
-                            parse_mode="Markdown",
-                        )
-                except Exception:
-                    sent_msg = await update.message.reply_text(payment_text, parse_mode="Markdown")
-            else:
-                sent_msg = await update.message.reply_text(payment_text, parse_mode="Markdown")
-
-            status_msg = await update.message.reply_text(
-                "⏳  Payment ka wait kar raha hoon... (max 10 min)"
-            )
-
-            user_id = update.effective_user.id
-            bot = update.get_bot()
-
-            async def _auto_verify_task():
-                from payment_verifier import verify_payment
-                from database import (
-                    is_utr_used, auto_approve_deposit_with_utr, get_settings,
-                    get_user, add_referral_bonus, add_log,
-                    compute_topup_bonus, credit_topup_bonus,
-                )
-                from keyboards import main_menu_keyboard
-                from ui import header as _h, card as _c, DIV as _D
-                try:
-                    result = await verify_payment(amount, timeout=600)
-                    if result.get("matched"):
-                        utr = result.get("utr", "")
-                        recv_amount = float(result.get("amount", amount))
-
-                        if await is_utr_used(utr):
-                            try:
-                                await status_msg.edit_text(
-                                    f"{_h('UTR ALREADY USED', '🚫', '🚫')}\n\n"
-                                    f"⚠️  Yeh transaction pehle se credited hai.\n"
-                                    f"❓  Help → {SUPPORT_USERNAME}",
-                                    parse_mode="Markdown",
-                                )
-                            except Exception:
-                                pass
-                            return
-
-                        deposit_id = await auto_approve_deposit_with_utr(
-                            user_id=user_id,
-                            amount=recv_amount,
-                            utr=utr,
-                            gmail_subject="Auto-Payment API",
-                        )
-                        if not deposit_id:
-                            try:
-                                await status_msg.edit_text(
-                                    f"{_h('ALREADY CREDITED', '⚠️', '⚠️')}\n\n"
-                                    f"Yeh transaction pehle se credited hai.\n"
-                                    f"❓  Help → {SUPPORT_USERNAME}",
-                                    parse_mode="Markdown",
-                                )
-                            except Exception:
-                                pass
-                            return
-
-                        bonus = 0.0
-                        try:
-                            bonus, _ = await compute_topup_bonus(recv_amount)
-                            if bonus > 0:
-                                await credit_topup_bonus(user_id, bonus)
-                        except Exception as _be:
-                            logger.error(f"[PayVerify] topup bonus error: {_be}")
-
-                        try:
-                            settings = await get_settings()
-                            ref_percent = settings.get("referral_percent", 5)
-                            db_user = await get_user(user_id)
-                            if db_user and db_user.get("referrer_id"):
-                                ref_bonus = recv_amount * ref_percent / 100
-                                await add_referral_bonus(db_user["referrer_id"], ref_bonus)
-                                await add_log("referral_bonus", {
-                                    "user_id": db_user["referrer_id"],
-                                    "from_user": user_id,
-                                    "amount": ref_bonus,
-                                })
-                                try:
-                                    await bot.send_message(
-                                        chat_id=db_user["referrer_id"],
-                                        text=f"🎁 Referral bonus! Aapne ₹{ref_bonus:.2f} earn kiya from a deposit.",
-                                    )
-                                except Exception:
-                                    pass
-                        except Exception as _re:
-                            logger.error(f"[PayVerify] referral error: {_re}")
-
-                        await add_log("deposit_approved", {
-                            "user_id": user_id, "amount": recv_amount,
-                            "auto": True, "utr": utr, "method": "api_verify"
-                        })
-
-                        bonus_line = f"🎁  Bonus:  *+₹{bonus:.2f}*\n" if bonus > 0 else ""
-                        try:
-                            await status_msg.edit_text(
-                                f"{_h('DEPOSIT APPROVED', '✅', '✅')}\n\n"
-                                f"{_c([f'💰  Amount:  *₹{recv_amount:.2f}*', f'🔢  UTR:  `{utr}`', '⚡  Auto-verified'])}\n\n"
-                                f"{bonus_line}"
-                                f"{_D}\n"
-                                f"✨  _Balance update ho gaya — order karo!_",
-                                parse_mode="Markdown",
-                                reply_markup=main_menu_keyboard(),
-                            )
-                        except Exception:
-                            pass
-
-                        for _aid in ADMIN_IDS:
-                            try:
-                                await bot.send_message(
-                                    chat_id=_aid,
-                                    text=(
-                                        f"✅ Auto-deposit credited (API verify)\n\n"
-                                        f"User: `{user_id}`\n"
-                                        f"Amount: ₹{recv_amount:.2f}\n"
-                                        f"UTR: `{utr}`\n"
-                                        f"Bonus: ₹{bonus:.2f}"
-                                    ),
-                                    parse_mode="Markdown",
-                                )
-                            except Exception:
-                                pass
-                    else:
-                        reason = result.get("reason", "not_found")
-                        from keyboards import main_menu_keyboard as _mmk
-                        if reason == "not_configured":
-                            msg = (
-                                f"{_h('VERIFIER NOT CONFIGURED', '⚠️', '⚠️')}\n\n"
-                                f"Admin se contact karo: {SUPPORT_USERNAME}"
-                            )
-                        else:
-                            msg = (
-                                f"{_h('PAYMENT NOT DETECTED', '❌', '❌')}\n\n"
-                                f"⚠️  10 min mein payment detect nahi hua.\n\n"
-                                f"💰  Expected:  *₹{amount:.2f}*\n\n"
-                                f"💡  *Agar tune pay kar diya hai:*\n"
-                                f"  • Screenshot + UTR leke support se contact kar\n"
-                                f"  • Support: {SUPPORT_USERNAME}"
-                            )
-                        try:
-                            await status_msg.edit_text(msg, parse_mode="Markdown", reply_markup=_mmk())
-                        except Exception:
-                            pass
-                        await add_log("deposit_failed_api_verify", {
-                            "user_id": user_id, "amount": amount, "reason": reason
-                        })
-                except Exception as _err:
-                    logger.error(f"[PayVerify] _auto_verify_task crash: {_err}", exc_info=True)
-
-            asyncio.create_task(_auto_verify_task())
-        else:
-            # ── Manual UTR mode (existing flow) ──────────────────────────
-            context.user_data["waiting_for"] = "utr"
-            payment_text = (
-                f"{header(f'PAY ₹{amount:.0f}', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{amount:.2f}', upi_line, '📲  *Kisi bhi UPI app* se payment karo', '🔢  Phir 12-digit *UTR* yahan bhejo'])}\n\n"
-                f"{DIV}\n"
-                f"⚡  _UTR bhejte hi system auto-verify karega (max 2 min)_\n"
-                f"💡  _Apne UPI app me history me jake UTR number dekho aur wahi 12-digit number bhejo_"
-            )
-            if os.path.exists(QR_CODE_FILE):
-                try:
-                    with open(QR_CODE_FILE, "rb") as qr_file:
-                        await update.message.reply_photo(
-                            photo=qr_file,
-                            caption=payment_text,
-                            parse_mode="Markdown"
-                        )
-                except Exception:
-                    await update.message.reply_text(payment_text, parse_mode="Markdown")
-            else:
-                await update.message.reply_text(payment_text, parse_mode="Markdown")
+        context.user_data.pop("waiting_for", None)
+        context.user_data.pop("deposit_amount", None)
+        await update.message.reply_text(
+            "⚙️ Payment system upgrade ho raha hai.\nThodi der mein available hoga. Admin se contact karo.",
+            reply_markup=main_menu_keyboard(),
+        )
         return
 
     await update.message.reply_text("Use the menu buttons to navigate.")
@@ -594,15 +375,6 @@ async def post_init(application: Application):
         logger.warning("[BOOT] ACTION REQUIRED: Go to MongoDB Atlas → Network Access → Add IP 0.0.0.0/0")
     logger.info("[BOOT] ✅ Bot is now LIVE and accepting updates.")
 
-    # ---- SMS-based deposit auto-verifier (cache fed by sms_group_listener) ----
-    try:
-        from sms_verifier import verifier as _sms_verifier, SMS_GROUP_ID, SMS_SENDER_FILTER
-        if _sms_verifier.is_configured():
-            logger.info(f"[BOOT] ✅ SMS verifier configured — group={SMS_GROUP_ID}, sender_filter='{SMS_SENDER_FILTER}'")
-        else:
-            logger.warning("[BOOT] ⚠️ SMS verifier NOT configured — set SMS_GROUP_ID env var to enable.")
-    except Exception as _e:
-        logger.error(f"[BOOT] SMS verifier init failed: {_e}")
 
     import datetime as _dt
     job_queue = application.job_queue
@@ -623,58 +395,6 @@ async def post_init(application: Application):
         logger.info(f"[BOOT] ✅ Group health monitor scheduled (every 5 min, threshold 10 min). Admins: {ADMIN_IDS}")
 
 
-async def sms_group_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receive forwarded SMS in the configured payment group, parse, cache.
-
-    A waiting handle_utr_input call (via unified_verify) will pick the
-    parsed credit up on its next poll and instantly credit the user.
-
-    Strict: ONLY messages from SMS_GROUP_ID are accepted. The OTP group is
-    completely separate and never used as a fallback. If SMS_GROUP_ID isn't
-    set, the listener silently ignores every message (and logs a warning at
-    boot so the admin knows to set it).
-    """
-    try:
-        from sms_verifier import verifier as _sms, SMS_GROUP_ID
-        chat = update.effective_chat
-        msg = update.effective_message
-        if not chat or not msg:
-            return
-
-        if not SMS_GROUP_ID or chat.id != SMS_GROUP_ID:
-            return
-
-        text = msg.text or msg.caption or ""
-        if not text:
-            return
-        sender = msg.from_user
-        sender_info = f"{sender.username or sender.first_name or sender.id}" if sender else "unknown"
-        logger.info(f"[SMS] 📩 received in group {chat.id} from {sender_info}: {text[:140]!r}")
-
-        # Honour the admin ON/OFF toggle.
-        try:
-            from database import get_settings
-            s = await get_settings()
-            if not s.get("sms_verify_enabled", True):
-                logger.info("[SMS] toggle is OFF, skipping")
-                return
-        except Exception:
-            pass
-
-        result = _sms.add_from_message(text)
-
-        if result.get("status") == "cached":
-            try:
-                from database import add_log
-                await add_log("sms_credit_cached", {
-                    "utr": result.get("utr"),
-                    "amount": result.get("amount"),
-                    "chat_id": chat.id,
-                })
-            except Exception:
-                pass
-    except Exception as e:
-        logger.error(f"[SMS] group listener failed: {e}", exc_info=True)
 
 
 async def maintenance_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -737,7 +457,6 @@ def main():
     app.add_handler(CallbackQueryHandler(confirm_buy_callback, pattern="^confirm_buy_"))
     app.add_handler(CallbackQueryHandler(cancel_order_callback, pattern="^cancel_order$"))
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern="^deposit$"))
-    app.add_handler(CallbackQueryHandler(paid_callback, pattern="^paid$"))
 
     app.add_handler(CallbackQueryHandler(admin_back_callback, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_stats_callback, pattern="^admin_stats$"))
@@ -873,7 +592,6 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_del_note_callback, pattern="^delnote_"))
 
     app.add_handler(CallbackQueryHandler(admin_recent_otps_callback, pattern="^admin_recent_otps$"))
-    app.add_handler(CallbackQueryHandler(deposit_upi_callback, pattern="^deposit_upi$"))
 
     app.add_handler(CallbackQueryHandler(refund_callback, pattern="^refund$"))
     app.add_handler(CallbackQueryHandler(refund_pick_callback, pattern="^refund_pick_"))
@@ -914,18 +632,6 @@ def main():
         (filters.TEXT | filters.Caption(None)) & ~filters.COMMAND & filters.ChatType.GROUPS,
         group_message_listener
     ))
-
-    # ---- SMS forwarder group listener (separate handler group so it never
-    # collides with the OTP listener above). Strict: only chat.id == SMS_GROUP_ID. ----
-    from sms_verifier import SMS_GROUP_ID as _SMS_GID, SMS_FILTERS as _SMS_FILT
-    app.add_handler(MessageHandler(
-        filters.ChatType.GROUPS & (filters.TEXT | filters.CAPTION) & ~filters.COMMAND,
-        sms_group_listener
-    ), group=1)
-    if _SMS_GID != 0:
-        logger.info(f"[BOOT] 📱 SMS payment listener registered (SMS_GROUP_ID={_SMS_GID}, filters={_SMS_FILT})")
-    else:
-        logger.warning("[BOOT] ⚠️ SMS payment listener INACTIVE — set SMS_GROUP_ID env var on Railway and redeploy.")
 
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
