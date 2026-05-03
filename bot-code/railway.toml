@@ -1,0 +1,9 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "telegram-bot/Dockerfile"
+
+[deploy]
+startCommand = "bash run.sh"
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "always"

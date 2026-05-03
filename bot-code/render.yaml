@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: otp-bot
+    runtime: docker
+    dockerfilePath: ./telegram-bot/Dockerfile
+    dockerContext: ./telegram-bot
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: MONGODB_URL
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: CHANNEL_1
+        sync: false
+      - key: CHANNEL_2
+        sync: false
+      - key: CHANNEL_USERNAME_1
+        sync: false
+      - key: CHANNEL_USERNAME_2
+        sync: false
+      - key: UPI_ID
+        sync: false
+      - key: SMS_GROUP_ID
+        sync: false
+      - key: SESSION_STRING
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: PORT
+        value: "8080"
