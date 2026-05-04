@@ -36,6 +36,179 @@ import asyncio
 WAITING_SCREENSHOT = 100
 
 
+import random
+import io
+import json as _json
+from urllib.request import urlopen
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME
+from ui import header, card, DIV
+
+_ALOO_API_URL = "http://bharataalu.animeverse23.in/api/v1/verify"
+_MAX_PAY_RETRIES = 10
+
+
+def _generate_unique_amount(base: float) -> float:
+    """Add random paise (0-99) to disambiguate concurrent deposits."""
+    paise = random.randint(0, 99)
+    return round(base + paise / 100, 2)
+
+
+def _make_payment_qr(upi_id: str, amount: float):
+    """Generate QR code as BytesIO for UPI payment. Returns None on failure."""
+    try:
+        import qrcode
+        upi_url = f"upi://pay?pa={upi_id}&am={amount:.2f}&cu=INR"
+        qr = qrcode.QRCode(box_size=10, border=4)
+        qr.add_data(upi_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception as _e:
+        logger.warning(f"[QR] generation failed: {_e}")
+        return None
+
+
+def _aloo_verify(amount: float) -> dict:
+    """Single synchronous ALOO API call. Returns response dict."""
+    try:
+        url = f"{_ALOO_API_URL}?api_key={VERIFY_API_KEY}&merchant_id={VERIFY_MERCHANT_ID}&amount={amount:.2f}"
+        with urlopen(url, timeout=15) as resp:
+            return _json.loads(resp.read().decode())
+    except Exception as _e:
+        logger.warning(f"[ALOO] verify error: {_e}")
+        return {}
+
+
+async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """User clicked 'Maine Pay Kar Diya' — call ALOO API once to verify."""
+    query = update.callback_query
+    await query.answer("🔍 Payment check ho raha hai...")
+    user_id = query.from_user.id
+
+    unique_amount = context.user_data.get("deposit_amount")
+    if not unique_amount:
+        try:
+            await query.edit_message_text(
+                "❌ *Session expire ho gaya.* /start dabao.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+        return
+
+    retries = context.user_data.get("paid_check_count", 0)
+    if retries >= _MAX_PAY_RETRIES:
+        context.user_data.pop("deposit_amount",   None)
+        context.user_data.pop("paid_check_count", None)
+        msg = "❌ *Bahut zyada retries.* /start se dobara try karo."
+        try:
+            await query.edit_message_caption(caption=msg, parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(msg, parse_mode="Markdown")
+        return
+
+    context.user_data["paid_check_count"] = retries + 1
+
+    # ── Single ALOO API call ──
+    result = _aloo_verify(unique_amount)
+
+    if result.get("success"):
+        utr = result.get("utr", "") or f"aloo_{int(unique_amount * 100)}"
+        context.user_data.pop("paid_check_count", None)
+        context.user_data.pop("deposit_amount",   None)
+
+        from database import (
+            auto_approve_deposit_with_utr, is_utr_used, get_settings,
+            get_user, add_referral_bonus, add_log,
+            compute_topup_bonus, credit_topup_bonus,
+        )
+        from config import ADMIN_IDS as _AIDS
+
+        if await is_utr_used(utr):
+            msg = f"⚠️ *Yeh payment pehle se credited hai.*\n❓ Help → {SUPPORT_USERNAME}"
+            try:
+                await query.edit_message_caption(caption=msg, parse_mode="Markdown")
+            except Exception:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            return
+
+        deposit_id = await auto_approve_deposit_with_utr(
+            user_id=user_id,
+            amount=float(unique_amount),
+            utr=utr,
+            gmail_subject="ALOO-Auto-Verify",
+        )
+
+        bonus = 0.0
+        try:
+            bonus, _ = await compute_topup_bonus(float(unique_amount))
+            if bonus > 0:
+                await credit_topup_bonus(user_id, bonus)
+        except Exception as _be:
+            logger.error(f"[ALOO] topup bonus error: {_be}")
+
+        try:
+            settings = await get_settings()
+            ref_pct = settings.get("referral_percent", 5)
+            db_user = await get_user(user_id)
+            if db_user and db_user.get("referrer_id"):
+                ref_bonus = float(unique_amount) * ref_pct / 100
+                await add_referral_bonus(db_user["referrer_id"], ref_bonus)
+                await add_log("referral_bonus", {"user_id": db_user["referrer_id"], "from_user": user_id, "amount": ref_bonus})
+                try:
+                    await context.bot.send_message(chat_id=db_user["referrer_id"], text=f"🎁 Referral bonus! ₹{ref_bonus:.2f} earn kiya.")
+                except Exception:
+                    pass
+        except Exception as _re:
+            logger.error(f"[ALOO] referral error: {_re}")
+
+        await add_log("deposit_approved", {"user_id": user_id, "amount": float(unique_amount), "auto": True, "utr": utr, "method": "aloo_button"})
+
+        bonus_line = f"\n🎁  Bonus:  *+₹{bonus:.2f}*" if bonus > 0 else ""
+        ok_text = (
+            f"{header('DEPOSIT APPROVED', '✅', '✅')}\n\n"
+            f"{card([f'💰  Amount:  *₹{float(unique_amount):.2f}*', f'🔢  UTR:  `{utr}`', '⚡  Auto-verified via ALOO'])}\n\n"
+            f"{bonus_line}\n{DIV}\n✨  _Balance update ho gaya — order karo!_"
+        )
+        try:
+            await query.edit_message_caption(caption=ok_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(ok_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+
+        for _aid in _AIDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=_aid,
+                    text=f"✅ Auto-deposit (ALOO)\nUser: `{user_id}`\nAmount: ₹{float(unique_amount):.2f}\nUTR: `{utr}`\nBonus: ₹{bonus:.2f}",
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
+    else:
+        baki = _MAX_PAY_RETRIES - retries - 1
+        retry_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Dobara Check Karo", callback_data="i_paid_retry")],
+            [InlineKeyboardButton("❌ Cancel",           callback_data="main_menu")],
+        ])
+        msg = (
+            f"⚠️ *Payment abhi detect nahi hui.*\n\n"
+            f"Agar pay kar diya hai toh thodi der baad retry karo.\n"
+            f"_(Attempts remaining: {baki})_"
+        )
+        try:
+            await query.edit_message_caption(caption=msg, reply_markup=retry_kb, parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(msg, reply_markup=retry_kb, parse_mode="Markdown")
+
+
+async def i_paid_retry_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await i_paid_handler(update, context)
+
+
 async def redeem_promo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -942,18 +1115,12 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
 
   
-async def paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data["waiting_for"] = "utr"
-    await query.edit_message_text(
-        f"{header('UTR ENTER KARO', '🔢', '🔢')}\n\n"
-        f"{card(['📲  Payment ke baad UTR mil jata hai', '🔢  12-digit number type karo', '⚡  System auto-verify karega'])}\n\n"
-        f"{DIV}\n"
-        f"💡  _Apne UPI app ki history me jake UTR number dekho aur wahi bhejo_",
-        reply_markup=back_keyboard(),
-        parse_mode="Markdown",
-    )
+async def paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Legacy 'Paid' button — now replaced by 'Maine Pay Kar Diya' (i_paid). Stub kept for import compat."""
+    q = update.callback_query
+    if q:
+        await q.answer()
+        await q.edit_message_text("ℹ️ Nayi process use karo: amount type karo aur 'Maine Pay Kar Diya' dabao.", parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 
 async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1276,210 +1443,10 @@ async def handle_refund_video(update: Update, context: ContextTypes.DEFAULT_TYPE
 # Gmail-based UTR auto-verification handler
 # ============================================================
 
-async def handle_utr_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User enters a 12-digit UTR. We check Gmail (FamApp emails) and
-    instantly credit if the UTR + amount match. No screenshot, no admin step."""
-    user_id = update.effective_user.id
-    raw = (update.message.text or "").strip()
-    # Tolerate spaces / "UTR:" prefix the user might paste.
-    digits = "".join(ch for ch in raw if ch.isdigit())
-
-    amount = context.user_data.get("deposit_amount")
-    if amount is None:
-        await update.message.reply_text(
-            "⚠️ Pehle deposit amount enter karo. Menu se Deposit dabao.",
-            reply_markup=main_menu_keyboard(),
-        )
-        context.user_data.pop("waiting_for", None)
-        return
-
-    if not digits or not (10 <= len(digits) <= 16):
-        await update.message.reply_text(
-            f"{header('INVALID UTR', '❌', '❌')}\n\n"
-            f"⚠️  UTR 10-16 digits ka hota hai.\n"
-            f"📝  Aapne bheja:  `{raw[:40]}`\n\n"
-            f"💡  Apne UPI app me history me jake transaction kholo aur 12-digit UTR number bhejo.",
-            parse_mode="Markdown",
-        )
-        return
-
-    # Duplicate-UTR guard (DB-level)
-    from database import is_utr_used, auto_approve_deposit_with_utr, get_settings, get_user, add_referral_bonus, add_log, compute_topup_bonus, credit_topup_bonus
-    if await is_utr_used(digits):
-        await update.message.reply_text(
-            f"{header('UTR ALREADY USED', '🚫', '🚫')}\n\n"
-            f"⛔  *Yeh UTR pehle se use ho chuka hai!*\n\n"
-            f"🔢  UTR:  `{digits}`\n\n"
-            f"⚠️  *CHETAVNI:*  Baar baar same UTR dalne ki koshish mat karo\n"
-            f"warna account permanently *BAN* ho jayega! 🚫\n\n"
-            f"💡  Naya payment karo aur naya UTR bhejo.\n\n"
-            f"❓  Galti se duplicate laga? → {SUPPORT_USERNAME}",
-            parse_mode="Markdown",
-            reply_markup=main_menu_keyboard(),
-        )
-        context.user_data.pop("waiting_for", None)
-        return
-
-    # Tell the user we're checking.
-    wait_msg = await update.message.reply_text(
-        f"{header('VERIFYING…', '⏳', '⏳')}\n\n"
-        f"{card([f'🔢  UTR:  `{digits}`', f'💰  Amount:  ₹{float(amount):.2f}', '🔍  Payment check ho raha hai', '⏱  Max 10 min']) }\n\n"
-        f"💡  _Payment aate hi instantly credit ho jayega_",
-        parse_mode="Markdown",
-    )
-
-    # Verify via SMS auto-verifier (10 min wait window matches the cache TTL)
-    from sms_verifier import unified_verify
-    result = await unified_verify(digits, float(amount), tolerance=1.0, timeout=600)
-
-    if result.get("matched"):
-        deposit_id = await auto_approve_deposit_with_utr(
-            user_id=user_id,
-            amount=float(amount),
-            utr=digits,
-            gmail_subject=result.get("subject", ""),
-        )
-        if not deposit_id:
-            # Race: another request used the same UTR moments ago.
-            try:
-                await wait_msg.edit_text(
-                    f"{header('UTR ALREADY USED', '❌', '❌')}\n\n"
-                    f"⚠️  Yeh UTR ab use ho chuka. Naya UTR bhejo.\n\n"
-                    f"❓  Help → {SUPPORT_USERNAME}",
-                    parse_mode="Markdown",
-                )
-            except: pass
-            context.user_data.pop("waiting_for", None)
-            return
-
-        # Credit top-up bonus if any slab matches.
-        bonus = 0.0
-        try:
-            bonus, slab = await compute_topup_bonus(float(amount))
-            if bonus > 0:
-                await credit_topup_bonus(user_id, bonus)
-        except Exception as e:
-            logger.error(f"[UTR] topup bonus error: {e}")
-
-        # Referral bonus.
-        try:
-            settings = await get_settings()
-            ref_percent = settings.get("referral_percent", 5)
-            db_user = await get_user(user_id)
-            if db_user and db_user.get("referrer_id"):
-                ref_bonus = float(amount) * ref_percent / 100
-                await add_referral_bonus(db_user["referrer_id"], ref_bonus)
-                await add_log("referral_bonus", {
-                    "user_id": db_user["referrer_id"],
-                    "from_user": user_id,
-                    "amount": ref_bonus,
-                })
-                try:
-                    await context.bot.send_message(
-                        chat_id=db_user["referrer_id"],
-                        text=f"🎁 Referral bonus! Aapne ₹{ref_bonus:.2f} earn kiya from a deposit.",
-                    )
-                except: pass
-        except Exception as e:
-            logger.error(f"[UTR] referral error: {e}")
-
-        await add_log("deposit_approved", {
-            "user_id": user_id, "amount": float(amount), "auto": True, "utr": digits
-        })
-
-        bonus_line = f"🎁  Bonus:  *+₹{bonus:.2f}*\n" if bonus > 0 else ""
-        try:
-            await wait_msg.edit_text(
-                f"{header('DEPOSIT APPROVED', '✅', '✅')}\n\n"
-                f"{card([f'💰  Amount:  *₹{float(amount):.2f}*', f'🔢  UTR:  `{digits}`', '⚡  Auto-verified'])}\n\n"
-                f"{bonus_line}"
-                f"{DIV}\n"
-                f"✨  _Balance update ho gaya — order karo!_",
-                parse_mode="Markdown",
-                reply_markup=main_menu_keyboard(),
-            )
-        except: pass
-
-        # Notify admins (info only — no action needed)
-        for _aid in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=_aid,
-                    text=(f"✅ Auto-deposit credited\n\n"
-                          f"User: `{user_id}`\n"
-                          f"Amount: ₹{float(amount):.2f}\n"
-                          f"UTR: `{digits}`\n"
-                          f"Bonus: ₹{bonus:.2f}"),
-                    parse_mode="Markdown",
-                )
-            except: pass
-
-        context.user_data.pop("waiting_for", None)
-        context.user_data.pop("deposit_amount", None)
-        return
-
-    # Not matched — explain why
-    reason = result.get("reason", "not_found")
-    if reason == "amount_mismatch":
-        exp = result.get("expected", amount)
-        rcv = result.get("received", 0)
-        try:
-            await wait_msg.edit_text(
-                f"{header('GALAT AMOUNT', '❌', '❌')}\n\n"
-                f"⚠️  *Aapne galat amount choose kiya hai!*\n\n"
-                f"💰  Aapne enter kiya:  *₹{float(exp):.2f}*\n"
-                f"💸  Asli payment amount:  *₹{float(rcv):.2f}*\n\n"
-                f"⛔  Bot khud se ye fix nahi kar sakta — admin manually correct karega.\n\n"
-                f"📞  *Admin se contact karo:*  {SUPPORT_USERNAME}\n"
-                f"📸  UTR + payment screenshot bhej dena, admin balance adjust kar dega.",
-                parse_mode="Markdown",
-                reply_markup=main_menu_keyboard(),
-            )
-        except: pass
-        # Log so admin can see mismatch attempts in admin logs panel.
-        try:
-            await add_log("deposit_amount_mismatch", {
-                "user_id": user_id,
-                "utr": digits,
-                "user_entered": float(exp),
-                "actually_received": float(rcv),
-            })
-        except Exception: pass
-    elif reason == "not_configured":
-        try:
-            await wait_msg.edit_text(
-                f"{header('AUTO-VERIFY OFF', '⚠️', '⚠️')}\n\n"
-                f"⚠️  Payment verifier abhi configured nahi hai.\n"
-                f"❓  Support se contact karo:  {SUPPORT_USERNAME}",
-                parse_mode="Markdown",
-                reply_markup=main_menu_keyboard(),
-            )
-        except: pass
-    else:
-        try:
-            await wait_msg.edit_text(
-                f"{header('PAYMENT NOT RECEIVED', '❌', '❌')}\n\n"
-                f"⚠️  Tera payment receive nahi hua hai.\n\n"
-                f"🔢  UTR:  `{digits}`\n"
-                f"💰  Amount:  ₹{float(amount):.2f}\n\n"
-                f"💡  *Agar tune actually payment kar diya hai* to:\n"
-                f"  • UTR + payment screenshot leke support se contact kar\n"
-                f"  • Support: {SUPPORT_USERNAME}\n\n"
-                f"❓  *Common reasons:*\n"
-                f"  • Payment galat UPI ID pe gaya hoga\n"
-                f"  • UTR galat type kar diya\n"
-                f"  • Bank delay ho raha hai (10 min ke baad support se baat kar)",
-                parse_mode="Markdown",
-                reply_markup=main_menu_keyboard(),
-            )
-        except: pass
-        # Log for admin visibility
-        await add_log("deposit_failed_utr", {
-            "user_id": user_id, "amount": float(amount), "utr": digits, "reason": reason
-        })
-
+async def handle_utr_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """UTR input stub — payment now verified via ALOO API button."""
     context.user_data.pop("waiting_for", None)
-
+    await update.message.reply_text("ℹ️ Nayi process: amount type karo aur '✅ Maine Pay Kar Diya' dabao.", parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 
 async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
