@@ -40,6 +40,7 @@ import random
 import io
 import json as _json
 from urllib.request import urlopen
+from urllib.parse import quote as _urlquote
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME
 from ui import header, card, DIV
@@ -58,7 +59,7 @@ def _make_payment_qr(upi_id: str, amount: float):
     """Generate QR code as BytesIO for UPI payment. Returns None on failure."""
     try:
         import qrcode
-        upi_url = f"upi://pay?pa={upi_id}&am={amount:.2f}&cu=INR"
+        upi_url = "upi://pay?pa=" + _urlquote(upi_id, safe="") + f"&am={amount:.2f}&cu=INR&tn=Deposit"
         qr = qrcode.QRCode(box_size=10, border=4)
         qr.add_data(upi_url)
         qr.make(fit=True)
@@ -74,13 +75,19 @@ def _make_payment_qr(upi_id: str, amount: float):
 
 def _aloo_verify(amount: float) -> dict:
     """Single synchronous ALOO API call. Returns response dict."""
+    if not VERIFY_API_KEY or not VERIFY_MERCHANT_ID:
+        logger.error("[ALOO] ❌ VERIFY_API_KEY or VERIFY_MERCHANT_ID not set!")
+        return {"_error": "not_configured"}
+    url = f"{_ALOO_API_URL}?api_key={VERIFY_API_KEY}&merchant_id={VERIFY_MERCHANT_ID}&amount={amount:.2f}"
+    logger.info(f"[ALOO] Calling verify API for amount={amount:.2f}")
     try:
-        url = f"{_ALOO_API_URL}?api_key={VERIFY_API_KEY}&merchant_id={VERIFY_MERCHANT_ID}&amount={amount:.2f}"
         with urlopen(url, timeout=15) as resp:
-            return _json.loads(resp.read().decode())
+            raw = resp.read().decode()
+            logger.info(f"[ALOO] Response: {raw[:200]}")
+            return _json.loads(raw)
     except Exception as _e:
         logger.warning(f"[ALOO] verify error: {_e}")
-        return {}
+        return {"_error": str(_e)}
 
 
 async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -114,7 +121,27 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["paid_check_count"] = retries + 1
 
     # ── Single ALOO API call ──
-    result = _aloo_verify(unique_amount)
+    # ── Show "Checking..." feedback immediately ──
+    checking_msg = f"🔍 *Payment verify ho rahi hai...* (Attempt {retries + 1}/{_MAX_PAY_RETRIES})\n\nEk second ruko — ALOO API check ho rahi hai..."
+    try:
+        await query.edit_message_caption(caption=checking_msg, parse_mode="Markdown")
+    except Exception:
+        try:
+            await query.edit_message_text(checking_msg, parse_mode="Markdown")
+        except Exception:
+            pass
+
+    # ── Single ALOO API call (thread to avoid blocking event loop) ──
+    import asyncio as _asyncio
+    result = await _asyncio.to_thread(_aloo_verify, unique_amount)
+
+    if result.get("_error") == "not_configured":
+        err_msg = "⚠️ *Payment verifier configured nahi hai.*\nAdmin se VERIFY\_API\_KEY aur VERIFY\_MERCHANT\_ID set karne ko kaho."
+        try:
+            await query.edit_message_caption(caption=err_msg, parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(err_msg, parse_mode="Markdown")
+        return
 
     if result.get("success"):
         utr = result.get("utr", "") or f"aloo_{int(unique_amount * 100)}"
