@@ -25,8 +25,6 @@ services:
         sync: false
       - key: UPI_ID
         sync: false
-      - key: SMS_GROUP_ID
-        sync: false
       - key: SESSION_STRING
         sync: false
       - key: API_ID
