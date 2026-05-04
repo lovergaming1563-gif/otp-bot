@@ -1,0 +1,50 @@
+2026-05-04T03:27:45.48141372Z 2026-05-04 03:27:45,479 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:27:55.578503559Z 2026-05-04 03:27:55,578 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:28:05.675697134Z 2026-05-04 03:28:05,675 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:28:15.769678003Z 2026-05-04 03:28:15,769 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:28:25.867530541Z 2026-05-04 03:28:25,866 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:28:36.350174254Z 2026-05-04 03:28:36,348 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:28:45.25713114Z 2026-05-04 03:28:45,256 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:28:55.351132619Z 2026-05-04 03:28:55,350 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:29:05.447171553Z 2026-05-04 03:29:05,444 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:29:15.539726655Z 2026-05-04 03:29:15,539 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:29:25.634623717Z 2026-05-04 03:29:25,634 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:29:35.729119426Z 2026-05-04 03:29:35,728 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:29:45.822938557Z 2026-05-04 03:29:45,822 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:29:55.919927474Z 2026-05-04 03:29:55,919 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:30:00.00714493Z 2026-05-04 03:30:00,005 - apscheduler.executors.default - INFO - Running job "daily_report (trigger: cron[day_of_week='sun,mon,tue,wed,thu,fri,sat', hour='3', minute='30', second='0'], next run at: 2026-05-05 03:30:00 UTC)" (scheduled at 2026-05-04 03:30:00+00:00)
+2026-05-04T03:30:00.0986541Z Self-ping OK
+2026-05-04T03:30:02.384182913Z 2026-05-04 03:30:02,382 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/sendMessage "HTTP/1.1 200 OK"
+2026-05-04T03:30:02.665601515Z 2026-05-04 03:30:02,663 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/sendMessage "HTTP/1.1 200 OK"
+2026-05-04T03:30:02.66585701Z 2026-05-04 03:30:02,665 - apscheduler.executors.default - INFO - Job "daily_report (trigger: cron[day_of_week='sun,mon,tue,wed,thu,fri,sat', hour='3', minute='30', second='0'], next run at: 2026-05-05 03:30:00 UTC)" executed successfully
+2026-05-04T03:30:06.016822793Z 2026-05-04 03:30:06,014 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:30:16.108142763Z 2026-05-04 03:30:16,107 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:30:26.212128237Z 2026-05-04 03:30:26,201 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:30:36.297641085Z 2026-05-04 03:30:36,297 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:30:46.391446707Z 2026-05-04 03:30:46,391 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:30:56.488191289Z 2026-05-04 03:30:56,485 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:31:06.579404611Z 2026-05-04 03:31:06,579 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:31:14.653758222Z 2026-05-04 03:31:14,653 - apscheduler.executors.default - INFO - Running job "group_health_check (trigger: interval[0:05:00], next run at: 2026-05-04 03:36:14 UTC)" (scheduled at 2026-05-04 03:31:14.643129+00:00)
+2026-05-04T03:31:14.882402839Z 2026-05-04 03:31:14,882 - __main__ - INFO - [HEALTH] periodic check running (threshold=5m reminder=2m window=60m)
+2026-05-04T03:31:15.569265619Z 2026-05-04 03:31:15,569 - __main__ - INFO - [HEALTH] silent_groups=1 silent_bots=3 admins=2
+2026-05-04T03:31:16.086024704Z 2026-05-04 03:31:16,085 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/sendMessage "HTTP/1.1 400 Bad Request"
+2026-05-04T03:31:16.086676246Z 2026-05-04 03:31:16,086 - __main__ - WARNING - [HEALTH] DM to 5720673756 failed: Can't parse entities: can't find end of the entity starting at byte offset 819
+2026-05-04T03:31:16.180930079Z 2026-05-04 03:31:16,180 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/sendMessage "HTTP/1.1 400 Bad Request"
+2026-05-04T03:31:16.181785695Z 2026-05-04 03:31:16,181 - __main__ - WARNING - [HEALTH] DM to 6928507193 failed: Can't parse entities: can't find end of the entity starting at byte offset 819
+2026-05-04T03:31:16.673205068Z 2026-05-04 03:31:16,672 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:31:17.11461583Z 2026-05-04 03:31:17,114 - apscheduler.executors.default - INFO - Job "group_health_check (trigger: interval[0:05:00], next run at: 2026-05-04 03:36:14 UTC)" executed successfully
+2026-05-04T03:31:26.768826985Z 2026-05-04 03:31:26,768 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:31:36.863413417Z 2026-05-04 03:31:36,863 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:31:46.9572544Z 2026-05-04 03:31:46,956 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:31:57.052996594Z 2026-05-04 03:31:57,052 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:32:07.147807476Z 2026-05-04 03:32:07,147 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:32:17.240498302Z 2026-05-04 03:32:17,240 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:32:27.333383278Z 2026-05-04 03:32:27,333 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:32:37.427274388Z 2026-05-04 03:32:37,426 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:32:47.52312141Z 2026-05-04 03:32:47,521 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:32:57.619229792Z 2026-05-04 03:32:57,618 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:33:07.719164183Z 2026-05-04 03:33:07,716 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:33:17.811211349Z 2026-05-04 03:33:17,810 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:33:27.904688573Z 2026-05-04 03:33:27,904 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:33:37.998348302Z 2026-05-04 03:33:37,998 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
+2026-05-04T03:33:48.09241218Z 2026-05-04 03:33:48,092 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8393025061:AAG6Yfy6ui4K-Y6iD7qBqNSmMxGwReZtypg/getUpdates "HTTP/1.1 200 OK"
