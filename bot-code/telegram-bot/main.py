@@ -219,47 +219,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
         return
-        min_dep = await get_min_deposit()
-        if amount < min_dep:
-            await update.message.reply_text(
-                f"{header('AMOUNT TOO LOW', '❌', '❌')}\n\n"
-                f"⚠️  *Minimum deposit:*  ₹{min_dep:.0f}\n"
-                f"💰  *You entered:*  ₹{amount:.2f}\n\n"
-                f"📝  Try again with ≥ ₹{min_dep:.0f}",
-                parse_mode="Markdown"
-            )
-            return
-
-        context.user_data["deposit_amount"] = amount
-        upi_id_dyn = await get_upi_id()
-        upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(not configured — contact support)_"
-
-            # ── Auto-verify mode via new payment API ──────────────────────
-            context.user_data.pop("waiting_for", None)
-            payment_text = (
-                f"{header(f'PAY ₹{amount:.0f}', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{amount:.2f}', upi_line, '📲  *Kisi bhi UPI app* se payment karo', '⚡  *Auto-verify:*  Instant'])}\n\n"
-                f"{DIV}\n"
-                f"⏳  _Payment detect hote hi automatically credit ho jayega (max 10 min)_"
-            )
-            if os.path.exists(QR_CODE_FILE):
-                try:
-                    with open(QR_CODE_FILE, "rb") as qr_file:
-                        sent_msg = await update.message.reply_photo(
-                            photo=qr_file,
-                            caption=payment_text,
-                            parse_mode="Markdown",
-                        )
-                except Exception:
-                    sent_msg = await update.message.reply_text(payment_text, parse_mode="Markdown")
-            else:
-                sent_msg = await update.message.reply_text(payment_text, parse_mode="Markdown")
-
-            status_msg = await update.message.reply_text(
-                "⏳  Payment ka wait kar raha hoon... (max 10 min)"
-            )
-
-
     await update.message.reply_text("Use the menu buttons to navigate.")
 
 
