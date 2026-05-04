@@ -1,0 +1,50 @@
+2026-05-04T03:52:22.263150145Z                                                                 ^^
+2026-05-04T03:52:22.263153515Z SyntaxError: f-string expression part cannot include a backslash
+2026-05-04T03:52:24.923634964Z === OTP Bot Starting ===
+2026-05-04T03:52:24.932522713Z Python: Python 3.11.15
+2026-05-04T03:52:24.933347202Z Working dir: /app
+2026-05-04T03:52:25.938516137Z Health server PID: 13
+2026-05-04T03:52:25.940470573Z Self-ping PID: 14
+2026-05-04T03:52:25.940485044Z Starting userbot (Pyrogram)...
+2026-05-04T03:52:25.940488204Z Starting main bot...
+2026-05-04T03:52:27.6372528Z Self-ping loop started (every 4 min)
+2026-05-04T03:52:27.934491291Z Health server running on port 8080
+2026-05-04T03:52:32.2314257Z Traceback (most recent call last):
+2026-05-04T03:52:32.231459851Z   File "/app/main.py", line 10, in <module>
+2026-05-04T03:52:32.231474611Z     from handlers.user_handlers import (
+2026-05-04T03:52:32.231478791Z   File "/app/handlers/user_handlers.py", line 1109
+2026-05-04T03:52:32.231485221Z     utr_line = f"{field('UTR', f'`{result[\"utr\"]}`', '🔖')}\n" if result.get("utr") else ""
+2026-05-04T03:52:32.231556923Z                                                                 ^^
+2026-05-04T03:52:32.231563533Z SyntaxError: f-string expression part cannot include a backslash
+2026-05-04T03:52:54.361954684Z === OTP Bot Starting ===
+2026-05-04T03:52:54.384065334Z Python: Python 3.11.15
+2026-05-04T03:52:54.384484964Z Working dir: /app
+2026-05-04T03:52:55.387939319Z Health server PID: 29
+2026-05-04T03:52:55.388183995Z Self-ping PID: 30
+2026-05-04T03:52:55.388226916Z Starting userbot (Pyrogram)...
+2026-05-04T03:52:55.388517212Z Starting main bot...
+2026-05-04T03:52:57.183072866Z Self-ping loop started (every 4 min)
+2026-05-04T03:52:57.684747968Z Health server running on port 8080
+2026-05-04T03:53:01.387462423Z Traceback (most recent call last):
+2026-05-04T03:53:01.387485793Z   File "/app/main.py", line 10, in <module>
+2026-05-04T03:53:01.387543234Z     from handlers.user_handlers import (
+2026-05-04T03:53:01.387548885Z   File "/app/handlers/user_handlers.py", line 1109
+2026-05-04T03:53:01.387553265Z     utr_line = f"{field('UTR', f'`{result[\"utr\"]}`', '🔖')}\n" if result.get("utr") else ""
+2026-05-04T03:53:01.387571445Z                                                                 ^^
+2026-05-04T03:53:01.387578765Z SyntaxError: f-string expression part cannot include a backslash
+2026-05-04T03:53:33.474916741Z === OTP Bot Starting ===
+2026-05-04T03:53:33.493341344Z Python: Python 3.11.15
+2026-05-04T03:53:33.493924238Z Working dir: /app
+2026-05-04T03:53:34.497210992Z Health server PID: 30
+2026-05-04T03:53:34.497471728Z Self-ping PID: 31
+2026-05-04T03:53:34.497491219Z Starting userbot (Pyrogram)...
+2026-05-04T03:53:34.498012951Z Starting main bot...
+2026-05-04T03:53:36.195602342Z Self-ping loop started (every 4 min)
+2026-05-04T03:53:36.894224621Z Health server running on port 8080
+2026-05-04T03:53:40.698882694Z Traceback (most recent call last):
+2026-05-04T03:53:40.698912585Z   File "/app/main.py", line 10, in <module>
+2026-05-04T03:53:40.698977596Z     from handlers.user_handlers import (
+2026-05-04T03:53:40.698993267Z   File "/app/handlers/user_handlers.py", line 1109
+2026-05-04T03:53:40.698999807Z     utr_line = f"{field('UTR', f'`{result[\"utr\"]}`', '🔖')}\n" if result.get("utr") else ""
+2026-05-04T03:53:40.699006617Z                                                                 ^^
+2026-05-04T03:53:40.699011307Z SyntaxError: f-string expression part cannot include a backslash
