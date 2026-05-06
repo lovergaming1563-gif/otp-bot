@@ -4,7 +4,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
 _admin_ids_raw = os.environ.get("ADMIN_IDS", str(ADMIN_ID))
-ADMIN_IDS = [int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip().isdigit()]
+ADMIN_IDS = [int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip().lstrip("-").isdigit()]
 
 MONGODB_URL = os.environ.get("MONGODB_URL", "")
 
@@ -15,6 +15,9 @@ CHANNEL_2 = int(_ch2) if _ch2.lstrip("-").isdigit() else None
 
 CHANNEL_USERNAME_1 = os.environ.get("CHANNEL_USERNAME_1", "")
 CHANNEL_USERNAME_2 = os.environ.get("CHANNEL_USERNAME_2", "")
+
+# CHANNELS list used by keyboards.py and utils.py
+CHANNELS = [ch for ch in [CHANNEL_1, CHANNEL_2] if ch is not None]
 
 UPI_ID = os.environ.get("UPI_ID", "BHARATPE.8B0L1T2H8C56136@fbpe")
 
