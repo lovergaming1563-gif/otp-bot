@@ -99,6 +99,7 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     await query.answer("🔍 Payment check ho raha hai...")
     user_id = query.from_user.id
+    logger.info(f"[PAID] Button clicked by user={user_id} callback={query.data}")
 
     unique_amount = context.user_data.get("deposit_amount")
     # Fallback: parse amount from callback_data (works even after bot restart)
@@ -140,6 +141,7 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["paid_check_count"] = retries + 1
 
     # ── Single ALOO API call ──
+    logger.info(f"[PAID] Calling ALOO API for user={user_id} amount={unique_amount}")
     # ── Show "Checking..." feedback immediately ──
     checking_msg = f"🔍 *Payment verify ho rahi hai...* (Attempt {retries + 1}/{_MAX_PAY_RETRIES})\n\nEk second ruko — ALOO API check ho rahi hai..."
     try:
