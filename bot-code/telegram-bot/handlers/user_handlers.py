@@ -45,7 +45,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME
 from ui import header, card, DIV
 
-_ALOO_API_URL = "http://bharataalu.animeverse23.in/api/v1/verify"
+_ALOO_API_URL = "https://bharataalu.animeverse23.in/api/v1/verify"
 _MAX_PAY_RETRIES = 10
 
 
@@ -74,20 +74,24 @@ def _make_payment_qr(upi_id: str, amount: float):
 
 
 def _aloo_verify(amount: float) -> dict:
-    """Single synchronous ALOO API call. Returns response dict."""
+    """Synchronous ALOO API call with retry. Returns response dict."""
     if not VERIFY_API_KEY or not VERIFY_MERCHANT_ID:
         logger.error("[ALOO] ❌ VERIFY_API_KEY or VERIFY_MERCHANT_ID not set!")
         return {"_error": "not_configured"}
     url = f"{_ALOO_API_URL}?api_key={VERIFY_API_KEY}&merchant_id={VERIFY_MERCHANT_ID}&amount={amount:.2f}"
     logger.info(f"[ALOO] Calling verify API for amount={amount:.2f}")
-    try:
-        with urlopen(url, timeout=15) as resp:
-            raw = resp.read().decode()
-            logger.info(f"[ALOO] Response: {raw[:200]}")
-            return _json.loads(raw)
-    except Exception as _e:
-        logger.warning(f"[ALOO] verify error: {_e}")
-        return {"_error": str(_e)}
+    import time as _time
+    for attempt in range(3):
+        try:
+            with urlopen(url, timeout=15) as resp:
+                raw = resp.read().decode()
+                logger.info(f"[ALOO] Response (attempt {{attempt+1}}): {{raw[:200]}}")
+                return _json.loads(raw)
+        except Exception as _e:
+            logger.warning(f"[ALOO] verify error (attempt {{attempt+1}}): {{_e}}")
+            if attempt < 2:
+                _time.sleep(2)
+    return {"_error": "api_failed_after_retries"}
 
 
 async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
