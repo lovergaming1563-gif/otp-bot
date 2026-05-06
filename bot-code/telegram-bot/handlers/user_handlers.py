@@ -75,20 +75,25 @@ def _make_payment_qr(upi_id: str, amount: float):
 
 def _aloo_verify(amount: float) -> dict:
     """Synchronous ALOO API call with retry. Returns response dict."""
+    import ssl as _ssl
+    import time as _time
+    from urllib.request import Request as _Request
     if not VERIFY_API_KEY or not VERIFY_MERCHANT_ID:
         logger.error("[ALOO] ❌ VERIFY_API_KEY or VERIFY_MERCHANT_ID not set!")
         return {"_error": "not_configured"}
     url = f"{_ALOO_API_URL}?api_key={VERIFY_API_KEY}&merchant_id={VERIFY_MERCHANT_ID}&amount={amount:.2f}"
-    logger.info(f"[ALOO] Calling verify API for amount={amount:.2f}")
-    import time as _time
+    logger.info(f"[ALOO] Calling verify API for amount={amount:.2f} url={_ALOO_API_URL}")
+    # Skip SSL cert verification — handles self-signed certs on Render
+    _ssl_ctx = _ssl._create_unverified_context()
+    _req = _Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
     for attempt in range(3):
         try:
-            with urlopen(url, timeout=15) as resp:
+            with urlopen(_req, context=_ssl_ctx, timeout=15) as resp:
                 raw = resp.read().decode()
-                logger.info(f"[ALOO] Response (attempt {{attempt+1}}): {{raw[:200]}}")
+                logger.info(f"[ALOO] Response (attempt {attempt+1}): {raw[:300]}")
                 return _json.loads(raw)
         except Exception as _e:
-            logger.warning(f"[ALOO] verify error (attempt {{attempt+1}}): {{_e}}")
+            logger.warning(f"[ALOO] verify error (attempt {attempt+1}): {type(_e).__name__}: {_e}")
             if attempt < 2:
                 _time.sleep(2)
     return {"_error": "api_failed_after_retries"}
