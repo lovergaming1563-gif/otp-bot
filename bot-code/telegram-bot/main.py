@@ -201,7 +201,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(contact support)_"
         qr_buf = _make_payment_qr(upi_id_dyn, unique_amount)
         pay_kb = _IKM([
-            [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data="i_paid")],
+            [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"i_paid_{unique_amount}")],
             [InlineKeyboardButton("❌ Cancel",            callback_data="main_menu")],
         ])
         payment_text = (
@@ -502,7 +502,7 @@ def main():
     app.add_handler(CallbackQueryHandler(confirm_buy_callback, pattern="^confirm_buy_"))
     app.add_handler(CallbackQueryHandler(cancel_order_callback, pattern="^cancel_order$"))
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern="^deposit$"))
-    app.add_handler(CallbackQueryHandler(i_paid_handler,       pattern="^i_paid$"))
+    app.add_handler(CallbackQueryHandler(i_paid_handler,       pattern="^i_paid_[\.\d]+$"))
     app.add_handler(CallbackQueryHandler(i_paid_retry_handler, pattern="^i_paid_retry$"))
 
     app.add_handler(CallbackQueryHandler(admin_back_callback, pattern="^admin_back$"))
