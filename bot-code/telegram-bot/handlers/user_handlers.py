@@ -101,14 +101,29 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
 
     unique_amount = context.user_data.get("deposit_amount")
+    # Fallback: parse amount from callback_data (works even after bot restart)
+    if not unique_amount:
+        cb = query.data  # e.g. "i_paid_150.37"
+        if cb.startswith("i_paid_"):
+            try:
+                unique_amount = float(cb[len("i_paid_"):])
+                context.user_data["deposit_amount"] = unique_amount
+            except (ValueError, IndexError):
+                pass
     if not unique_amount:
         try:
-            await query.edit_message_text(
-                "❌ *Session expire ho gaya.* /start dabao.",
+            await query.edit_message_caption(
+                caption="❌ *Session expire ho gaya.* /start dabao.",
                 parse_mode="Markdown",
             )
         except Exception:
-            pass
+            try:
+                await query.edit_message_text(
+                    "❌ *Session expire ho gaya.* /start dabao.",
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
         return
 
     retries = context.user_data.get("paid_check_count", 0)
@@ -222,7 +237,7 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         baki = _MAX_PAY_RETRIES - retries - 1
         retry_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Dobara Check Karo", callback_data="i_paid_retry")],
+            [InlineKeyboardButton("🔄 Dobara Check Karo", callback_data=f"i_paid_{unique_amount}")],
             [InlineKeyboardButton("❌ Cancel",           callback_data="main_menu")],
         ])
         msg = (
