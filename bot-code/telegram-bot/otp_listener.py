@@ -16,7 +16,8 @@ from database import (
     deduct_balance, delete_number_from_stock, add_log,
     get_mode, get_settings, get_otp_group_id, get_all_active_sessions,
     get_active_service_keywords, get_services, get_service_price,
-    get_service_otp_digits, record_otp_digit_usage, get_otp_digit_stats
+    get_service_otp_digits, record_otp_digit_usage, get_otp_digit_stats,
+    add_recent_device_id, get_recent_device_ids_db
 )
 
 from keyboards import main_menu_keyboard
@@ -409,6 +410,16 @@ async def group_message_listener(update: Update, context: ContextTypes.DEFAULT_T
     # ── STEP 1: Extract device_id from message ──
     device_id = extract_device_id(text)
     text_lower = text.lower()
+
+    # Cache device_id IMMEDIATELY (same as userbot.py does) — needed for
+    # purchase priority matching even if no session exists yet for this device.
+    if device_id:
+        try:
+            await add_recent_device_id(device_id)
+            cached = await get_recent_device_ids_db()
+            logger.info(f"[DEVICE] Cached device_id={device_id} | total cached={len(cached)}")
+        except Exception as _de:
+            logger.error(f"[DEVICE] cache update failed: {_de}")
 
     # ── STEP 2: Find session by device_id → get the user-bought service ──
     session = None
