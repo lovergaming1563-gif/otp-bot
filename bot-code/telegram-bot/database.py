@@ -310,28 +310,75 @@ async def set_recent_device_ids(device_ids: list, max_size: int = None):
 
 async def add_recent_device_id(device_id: str):
     """Prepend a single device_id to the recent cache (newest first, dedupe, trim).
+    Each entry stored with timestamp so stale IDs can be filtered out.
     All-in-one helper called from userbot — uses admin-configured cache size."""
+    import datetime as _dt
     if not device_id:
         return
     nd = str(device_id).strip().lower()
     if not nd:
         return
     max_size = await get_recent_devices_cache_size()
-    current = await get_recent_device_ids_db()
-    norm_current = [str(x).strip().lower() for x in (current or []) if x]
-    new_list = [nd] + [x for x in norm_current if x != nd]
+    now_iso = _dt.datetime.utcnow().isoformat()
+    doc = await db.settings.find_one({"_id": "recent_device_ids"})
+    # Support both old format (ids: [...]) and new format (entries: [{id, ts}])
+    raw_entries = []
+    if doc:
+        if isinstance(doc.get("entries"), list):
+            raw_entries = doc["entries"]
+        elif isinstance(doc.get("ids"), list):
+            # Migrate old format — give existing IDs a fake old timestamp so
+            # they expire naturally and new live IDs take priority.
+            old_ts = _dt.datetime(2000, 1, 1).isoformat()
+            raw_entries = [{"id": str(x).strip().lower(), "ts": old_ts} for x in doc["ids"] if x]
+    # Deduplicate (keep newest), then prepend new entry
+    seen = set()
+    deduped = []
+    for e in raw_entries:
+        eid = str(e.get("id", "")).strip().lower()
+        if eid and eid not in seen and eid != nd:
+            seen.add(eid)
+            deduped.append(e)
+    new_entries = [{"id": nd, "ts": now_iso}] + deduped
+    new_entries = new_entries[:max_size]
+    # Keep ids list in sync (for any legacy readers)
+    new_ids = [e["id"] for e in new_entries]
     await db.settings.update_one(
         {"_id": "recent_device_ids"},
-        {"$set": {"ids": new_list[:max_size]}},
+        {"$set": {"entries": new_entries, "ids": new_ids, "last_added_at": now_iso}},
         upsert=True,
     )
 
 
-async def get_recent_device_ids_db() -> list:
-    """Read recent device_ids cache from DB."""
+async def get_recent_device_ids_db(max_age_minutes: int = 60) -> list:
+    """Read recent device_ids cache from DB, filtering out entries older than max_age_minutes.
+    Entries with no timestamp (legacy) are also returned (treated as fresh).
+    Returns list of device_id strings, newest first."""
+    import datetime as _dt
     doc = await db.settings.find_one({"_id": "recent_device_ids"})
-    if doc and isinstance(doc.get("ids"), list):
-        return doc["ids"]
+    if not doc:
+        return []
+    cutoff = _dt.datetime.utcnow() - _dt.timedelta(minutes=max_age_minutes)
+    # New format: entries list with timestamps
+    if isinstance(doc.get("entries"), list):
+        fresh = []
+        for e in doc["entries"]:
+            eid = str(e.get("id", "")).strip().lower()
+            if not eid:
+                continue
+            ts_str = e.get("ts")
+            if ts_str:
+                try:
+                    ts = _dt.datetime.fromisoformat(ts_str)
+                    if ts < cutoff:
+                        continue  # stale — skip
+                except Exception:
+                    pass  # can't parse ts — include it anyway
+            fresh.append(eid)
+        return fresh
+    # Legacy format: plain list (no timestamps — return as-is)
+    if isinstance(doc.get("ids"), list):
+        return [str(x).strip().lower() for x in doc["ids"] if x]
     return []
 
 
