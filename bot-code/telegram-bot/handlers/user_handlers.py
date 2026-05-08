@@ -1530,3 +1530,186 @@ async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"📝  *Examples:*  `50`, `100`, `500`"
     )
     await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 📝 SERVICE REQUEST FEATURE
+# ══════════════════════════════════════════════════════════════════════════════
+
+DAILY_REQUEST_LIMIT = 2
+
+
+async def request_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    from database import get_user_daily_request_count
+    from keyboards import service_request_cancel_keyboard
+    from ui import header, card, DIV
+
+    count = await get_user_daily_request_count(user_id)
+    if count >= DAILY_REQUEST_LIMIT:
+        text = (
+            f"{header('REQUEST LIMIT', '⚠️', '⚠️')}\n\n"
+            f"{card([f'📊  Aaj ki requests: *{count}/{DAILY_REQUEST_LIMIT}*', '', '⏳  Kal phir try karna!', '   Daily limit: 2 requests/day'])}\n\n"
+            f"{DIV}"
+        )
+        await query.edit_message_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
+        return
+
+    context.user_data["waiting_for"] = "svc_req_name"
+    context.user_data.pop("svc_req_data", None)
+
+    text = (
+        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
+        f"{card(['📋  Step 1 of 4', '', '🏷️  Service ka naam kya hai?', '   (Jaise: Amazon, Swiggy, Zomato)'])}\n\n"
+        f"{DIV}\n"
+        f"⌨️  _Neeche type karke bhejo:_"
+    )
+    await query.edit_message_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
+
+
+async def handle_svc_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = update.message.text.strip()
+    from keyboards import service_request_cancel_keyboard
+    from ui import header, card, DIV
+
+    if len(name) < 2 or len(name) > 50:
+        await update.message.reply_text(
+            "❌ Naam 2-50 characters ka hona chahiye. Dobara likho:",
+            reply_markup=service_request_cancel_keyboard()
+        )
+        return
+
+    context.user_data["svc_req_data"] = {"name": name}
+    context.user_data["waiting_for"] = "svc_req_price"
+
+    text = (
+        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
+        f"{card(['📋  Step 2 of 4', '', f'✅  Service: *{name}*', '', '💰  Suggested price kya ho? (₹ mein)', '   (Jaise: 5, 10, 15)'])}\n\n"
+        f"{DIV}\n"
+        f"⌨️  _Amount type karke bhejo:_"
+    )
+    await update.message.reply_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
+
+
+async def handle_svc_req_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw = update.message.text.strip().replace("₹", "").strip()
+    from keyboards import service_request_cancel_keyboard
+    from ui import header, card, DIV
+
+    try:
+        price = float(raw)
+        if price <= 0 or price > 1000:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Valid price daalo (₹1 se ₹1000 ke beech):",
+            reply_markup=service_request_cancel_keyboard()
+        )
+        return
+
+    context.user_data["svc_req_data"]["suggested_price"] = price
+    context.user_data["waiting_for"] = "svc_req_keywords"
+
+    name = context.user_data["svc_req_data"]["name"]
+    text = (
+        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
+        f"{card(['📋  Step 3 of 4', '', f'✅  Service: *{name}*', f'✅  Price: *₹{price:.0f}*', '', '🔑  Keywords daalo (comma se alag)', '   (Jo words OTP SMS mein aate hain)', '   Jaise: amazon, amzn, amazon.in'])}\n\n"
+        f"{DIV}\n"
+        f"⌨️  _Keywords type karke bhejo:_"
+    )
+    await update.message.reply_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
+
+
+async def handle_svc_req_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw = update.message.text.strip()
+    from keyboards import service_request_cancel_keyboard
+    from ui import header, card, DIV
+
+    keywords = [k.strip().lower() for k in raw.split(",") if k.strip()]
+    if not keywords or len(keywords) > 10:
+        await update.message.reply_text(
+            "❌ 1 se 10 keywords daalo, comma se alag karke:",
+            reply_markup=service_request_cancel_keyboard()
+        )
+        return
+
+    context.user_data["svc_req_data"]["keywords"] = keywords
+    context.user_data["waiting_for"] = "svc_req_description"
+
+    name = context.user_data["svc_req_data"]["name"]
+    price = context.user_data["svc_req_data"]["suggested_price"]
+    kw_str = ", ".join(keywords)
+    text = (
+        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
+        f"{card(['📋  Step 4 of 4', '', f'✅  Service: *{name}*', f'✅  Price: *₹{price:.0f}*', f'✅  Keywords: `{kw_str}`', '', '📄  Thoda describe karo:', '   (Kyu chahiye? Kahan use hogi?)'])}\n\n"
+        f"{DIV}\n"
+        f"⌨️  _Description type karke bhejo:_"
+    )
+    await update.message.reply_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
+
+
+async def handle_svc_req_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    description = update.message.text.strip()
+    from keyboards import service_request_cancel_keyboard, service_request_admin_keyboard
+    from ui import header, card, DIV
+    from database import create_service_request
+    from config import ADMIN_IDS
+
+    if len(description) < 5 or len(description) > 300:
+        await update.message.reply_text(
+            "❌ Description 5-300 characters ka hona chahiye:",
+            reply_markup=service_request_cancel_keyboard()
+        )
+        return
+
+    data = context.user_data.get("svc_req_data", {})
+    name = data.get("name", "")
+    price = data.get("suggested_price", 0)
+    keywords = data.get("keywords", [])
+
+    context.user_data.pop("waiting_for", None)
+    context.user_data.pop("svc_req_data", None)
+
+    user_id = update.effective_user.id
+    user = update.effective_user
+    uname = f"@{user.username}" if user.username else (user.first_name or f"User {user_id}")
+
+    request_id = await create_service_request(user_id, name, price, keywords, description)
+
+    # Confirm to user
+    kw_str = ", ".join(keywords)
+    text = (
+        f"{header('REQUEST SUBMITTED', '✅', '✅')}\n\n"
+        f"{card([f'🏷️  Service: *{name}*', f'💰  Price: *₹{price:.0f}*', f'🔑  Keywords: `{kw_str}`', f'📄  Description: _{description}_'])}\n\n"
+        f"{DIV}\n"
+        f"⏳  _Admin review karega aur approve/reject karega!_\n"
+        f"🔔  _Result aapko notify kiya jayega._"
+    )
+    await update.message.reply_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
+
+    # Notify admins
+    admin_msg = (
+        f"📝 *New Service Request*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 User: {uname}\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"🏷️ Service: *{name}*\n"
+        f"💰 Suggested Price: *₹{price:.0f}*\n"
+        f"🔑 Keywords: `{kw_str}`\n"
+        f"📄 Description: _{description}_\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 Request ID: `{request_id}`"
+    )
+    for aid in ADMIN_IDS:
+        try:
+            await update.get_bot().send_message(
+                chat_id=aid,
+                text=admin_msg,
+                parse_mode="Markdown",
+                reply_markup=service_request_admin_keyboard(request_id)
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify admin {aid} about service request: {e}")
