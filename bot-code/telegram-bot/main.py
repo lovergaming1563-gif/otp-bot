@@ -17,6 +17,8 @@ from handlers.user_handlers import (
     service_search_callback, service_page_callback,
     deposit_upi_callback,
     i_paid_handler, i_paid_retry_handler,
+    request_service_callback,
+    handle_svc_req_name, handle_svc_req_price, handle_svc_req_keywords, handle_svc_req_description,
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
@@ -69,6 +71,9 @@ from handlers.admin_handlers import (
     admin_user_notes_callback, admin_add_note_callback, admin_del_note_callback,
     admin_recent_otps_callback,
     diag_command,
+    svc_req_approve_callback, svc_req_confirm_callback,
+    svc_req_edit_price_callback, svc_req_edit_kw_callback,
+    svc_req_reject_callback, handle_svc_req_admin_text,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -83,7 +88,9 @@ logger = logging.getLogger(__name__)
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user and update.effective_user.id in ADMIN_IDS:
         if context.user_data.get("admin_action"):
-            await handle_admin_text(update, context)
+            handled = await handle_svc_req_admin_text(update, context)
+            if not handled:
+                await handle_admin_text(update, context)
             return
 
     if context.user_data.get("waiting_for") == "screenshot":
@@ -165,6 +172,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+
+    if context.user_data.get("waiting_for") == "svc_req_name":
+        await handle_svc_req_name(update, context)
+        return
+
+    if context.user_data.get("waiting_for") == "svc_req_price":
+        await handle_svc_req_price(update, context)
+        return
+
+    if context.user_data.get("waiting_for") == "svc_req_keywords":
+        await handle_svc_req_keywords(update, context)
+        return
+
+    if context.user_data.get("waiting_for") == "svc_req_description":
+        await handle_svc_req_description(update, context)
+        return
 
     if context.user_data.get("waiting_for") == "deposit_amount":
         from config import SUPPORT_USERNAME
@@ -636,6 +659,12 @@ def main():
     app.add_handler(CallbackQueryHandler(promo_claimers_callback, pattern="^promo_claimers_"))
     app.add_handler(CallbackQueryHandler(promo_toggle_callback, pattern="^promo_toggle_"))
     app.add_handler(CallbackQueryHandler(promo_delete_callback, pattern="^promo_delete_"))
+    app.add_handler(CallbackQueryHandler(request_service_callback, pattern="^request_service$"))
+    app.add_handler(CallbackQueryHandler(svc_req_approve_callback, pattern="^svc_req_approve_"))
+    app.add_handler(CallbackQueryHandler(svc_req_confirm_callback, pattern="^svc_req_confirm_"))
+    app.add_handler(CallbackQueryHandler(svc_req_edit_price_callback, pattern="^svc_req_edit_price_"))
+    app.add_handler(CallbackQueryHandler(svc_req_edit_kw_callback, pattern="^svc_req_edit_kw_"))
+    app.add_handler(CallbackQueryHandler(svc_req_reject_callback, pattern="^svc_req_reject_"))
     app.add_handler(CallbackQueryHandler(redeem_promo_callback, pattern="^redeem_promo$"))
 
     app.add_handler(CallbackQueryHandler(admin_user_notes_callback, pattern="^notes_"))
