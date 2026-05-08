@@ -11,6 +11,7 @@ def main_menu_keyboard():
          InlineKeyboardButton("📋  History",   callback_data="history")],
         [InlineKeyboardButton("🎟  Redeem Promo Code", callback_data="redeem_promo")],
         [InlineKeyboardButton("🔄  Refund Request", callback_data="refund")],
+        [InlineKeyboardButton("📝  Request a Service", callback_data="request_service")],
         [InlineKeyboardButton("💬  Support",   callback_data="support")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -498,5 +499,20 @@ def user_actions_keyboard(user_id: int, banned: bool):
         [InlineKeyboardButton(ban_text, callback_data=ban_cb),
          InlineKeyboardButton("📝 Notes", callback_data=f"notes_{user_id}")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def service_request_admin_keyboard(request_id: str):
+    keyboard = [
+        [InlineKeyboardButton("✅ Approve & Add", callback_data=f"svc_req_approve_{request_id}"),
+         InlineKeyboardButton("❌ Reject", callback_data=f"svc_req_reject_{request_id}")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def service_request_cancel_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
