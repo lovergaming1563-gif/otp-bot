@@ -4168,3 +4168,73 @@ async def admin_recent_otps_callback(update: Update, context: ContextTypes.DEFAU
         ]),
         parse_mode="Markdown"
     )
+
+
+async def diag_command(update, context):
+    """Admin /diag command — shows full system status for debugging."""
+    from telegram import Update
+    from telegram.ext import ContextTypes
+    user = update.effective_user
+    if not user or user.id not in [int(a) for a in __import__('config').ADMIN_IDS]:
+        return
+    from database import get_mode, get_otp_group_id, get_recent_device_ids_db, get_recent_devices_cache_size, get_settings
+    import os
+
+    mode     = await get_mode()
+    otp_gid  = await get_otp_group_id()
+    cache_sz = await get_recent_devices_cache_size()
+    recent   = await get_recent_device_ids_db()
+    settings = await get_settings()
+
+    mode_icon  = "✅" if mode == "auto" else "⚠️"
+    group_line = f"`{otp_gid}`" if otp_gid else "❌ NOT SET — bot reads ALL groups"
+    cache_line = (
+        "\n".join(f"  `{d}`" for d in recent[:10]) if recent
+        else "❌ Empty — no OTP messages received yet OR privacy mode ON"
+    )
+
+    maint = "🔴 ON (users blocked)" if settings.get("maintenance_mode") else "🟢 OFF"
+
+    msg = (
+        f"🔍 *Bot Diagnostics*
+"
+        f"━━━━━━━━━━━━━━━━━━━━
+
+"
+        f"*1. OTP Mode*
+"
+        f"{mode_icon} Mode: `{mode}`
+"
+        f"_(Must be `auto` for OTP group reading)_
+
+"
+        f"*2. OTP Group*
+"
+        f"📡 Group ID: {group_line}
+
+"
+        f"*3. Recent Device IDs Cache* (size={cache_sz})
+"
+        f"{cache_line}
+
+"
+        f"*4. Maintenance:* {maint}
+
+"
+        f"━━━━━━━━━━━━━━━━━━━━
+"
+        f"⚠️ *Privacy Mode Check (IMPORTANT)*
+"
+        f"Agar device IDs cache empty hai, toh BotFather mein
+"
+        f"Privacy Mode OFF karo:
+"
+        f"@BotFather → /mybots → Bot Settings
+"
+        f"→ Group Privacy → *Turn OFF*
+
+"
+        f"Uske baad bot ko group se remove karke wapas add karo."
+    )
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
