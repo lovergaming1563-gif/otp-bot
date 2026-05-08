@@ -108,7 +108,12 @@ def service_search_results_keyboard(matches: list, query_text: str = ""):
 
 def buy_otp_keyboard(service: str = ""):
     keyboard = [
-        [InlineKeyboardButton("✅  Confirm & Buy", callback_data=f"confirm_buy_{service}")],
+        [InlineKeyboardButton("📦  Kitne OTP chahiye?", callback_data="noop")],
+        [InlineKeyboardButton("1️⃣  1 OTP", callback_data=f"confirm_buy_{service}__qty_1"),
+         InlineKeyboardButton("2️⃣  2 OTPs", callback_data=f"confirm_buy_{service}__qty_2")],
+        [InlineKeyboardButton("3️⃣  3 OTPs", callback_data=f"confirm_buy_{service}__qty_3"),
+         InlineKeyboardButton("4️⃣  4 OTPs", callback_data=f"confirm_buy_{service}__qty_4")],
+        [InlineKeyboardButton("5️⃣  5 OTPs", callback_data=f"confirm_buy_{service}__qty_5")],
         [InlineKeyboardButton("🔙  Back", callback_data="buy_otp")],
     ]
     return InlineKeyboardMarkup(keyboard)
