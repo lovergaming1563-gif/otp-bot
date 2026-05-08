@@ -4218,3 +4218,284 @@ async def diag_command(update, context):
     ]
     msg = "\n".join(lines)
     await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 📝 SERVICE REQUEST — ADMIN APPROVE / REJECT
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def svc_req_approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    request_id = query.data.replace("svc_req_approve_", "")
+    from database import get_service_request
+    req = await get_service_request(request_id)
+    if not req:
+        await query.answer("❌ Request not found.", show_alert=True)
+        return
+    if req.get("status") != "pending":
+        await query.answer(f"⚠️ Already {req.get('status')}.", show_alert=True)
+        return
+
+    name = req.get("name", "")
+    price = req.get("suggested_price", 5.0)
+    keywords = req.get("keywords", [])
+    kw_str = ", ".join(keywords)
+
+    context.user_data["svc_req_approve_id"] = request_id
+    context.user_data["svc_req_approve_name"] = name
+    context.user_data["svc_req_approve_price"] = price
+    context.user_data["svc_req_approve_keywords"] = keywords
+    context.user_data["admin_action"] = "svc_req_edit_price"
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ Confirm as-is (₹{price:.0f})", callback_data=f"svc_req_confirm_{request_id}")],
+        [InlineKeyboardButton("✏️ Edit Price", callback_data=f"svc_req_edit_price_{request_id}"),
+         InlineKeyboardButton("🔑 Edit Keywords", callback_data=f"svc_req_edit_kw_{request_id}")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="admin_back")],
+    ])
+    text = (
+        f"📝 *Service Request — Approve*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ Name: *{name}*\n"
+        f"💰 Price: *₹{price:.0f}*\n"
+        f"🔑 Keywords: `{kw_str}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"Price/keywords edit karo ya as-is confirm karo:"
+    )
+    await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def svc_req_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    request_id = query.data.replace("svc_req_confirm_", "")
+    from database import get_service_request, add_service, update_service_request_status
+
+    req = await get_service_request(request_id)
+    if not req:
+        await query.answer("❌ Request not found.", show_alert=True)
+        return
+
+    name = context.user_data.get("svc_req_approve_name", req.get("name", ""))
+    price = context.user_data.get("svc_req_approve_price", req.get("suggested_price", 5.0))
+    keywords = context.user_data.get("svc_req_approve_keywords", req.get("keywords", []))
+
+    # Add the service
+    ok = await add_service(name, keywords, price=price)
+    await update_service_request_status(request_id, "approved")
+
+    context.user_data.pop("admin_action", None)
+    context.user_data.pop("svc_req_approve_id", None)
+    context.user_data.pop("svc_req_approve_name", None)
+    context.user_data.pop("svc_req_approve_price", None)
+    context.user_data.pop("svc_req_approve_keywords", None)
+
+    kw_str = ", ".join(keywords)
+    status = "✅ Added!" if ok else "⚠️ Already exists (not duplicated)"
+    await query.edit_message_text(
+        f"✅ *Service Request Approved*\n\n"
+        f"🏷️ Name: *{name}*\n"
+        f"💰 Price: *₹{price:.0f}*\n"
+        f"🔑 Keywords: `{kw_str}`\n"
+        f"📦 Status: {status}",
+        parse_mode="Markdown"
+    )
+
+    # Notify user
+    user_id = req.get("user_id")
+    try:
+        from keyboards import main_menu_keyboard
+        await update.get_bot().send_message(
+            chat_id=user_id,
+            text=(
+                f"🎉 *Service Request Approved!*\n\n"
+                f"🏷️ *{name}* ab available hai!\n"
+                f"💰 Price: *₹{price:.0f}*\n\n"
+                f"👇 Buy OTP karke try karo!"
+            ),
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify user {user_id} of approval: {e}")
+
+
+async def svc_req_edit_price_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    request_id = query.data.replace("svc_req_edit_price_", "")
+    context.user_data["svc_req_approve_id"] = request_id
+    context.user_data["admin_action"] = "svc_req_new_price"
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    await query.edit_message_text(
+        "💰 *Naya price daalo (₹ mein):*\n\nJaise: `8`, `12`, `15`",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_back")]])
+    )
+
+
+async def svc_req_edit_kw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    request_id = query.data.replace("svc_req_edit_kw_", "")
+    context.user_data["svc_req_approve_id"] = request_id
+    context.user_data["admin_action"] = "svc_req_new_keywords"
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    await query.edit_message_text(
+        "🔑 *Naye keywords daalo (comma se alag):*\n\nJaise: `amazon, amzn, amazon.in`",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_back")]])
+    )
+
+
+async def svc_req_reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    request_id = query.data.replace("svc_req_reject_", "")
+    from database import get_service_request
+    req = await get_service_request(request_id)
+    if not req:
+        await query.answer("❌ Request not found.", show_alert=True)
+        return
+    if req.get("status") != "pending":
+        await query.answer(f"⚠️ Already {req.get('status')}.", show_alert=True)
+        return
+
+    context.user_data["svc_req_reject_id"] = request_id
+    context.user_data["svc_req_reject_user"] = req.get("user_id")
+    context.user_data["svc_req_reject_name"] = req.get("name", "")
+    context.user_data["admin_action"] = "svc_req_reject_reason"
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    await query.edit_message_text(
+        f"❌ *Reject Reason likhna:*\n\n"
+        f"Service: *{req.get('name')}*\n\n"
+        f"_User ko ye message bheja jayega._\n"
+        f"Rejection reason type karo:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_back")]])
+    )
+
+
+async def handle_svc_req_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Handle admin text input for service request approve/reject flows.
+    Returns True if handled, False otherwise."""
+    action = context.user_data.get("admin_action", "")
+
+    if action == "svc_req_new_price":
+        raw = update.message.text.strip().replace("₹", "").strip()
+        try:
+            price = float(raw)
+            if price <= 0 or price > 10000:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ Valid price daalo (1-10000):")
+            return True
+
+        context.user_data["svc_req_approve_price"] = price
+        context.user_data["admin_action"] = "svc_req_edit_price"
+
+        request_id = context.user_data.get("svc_req_approve_id", "")
+        name = context.user_data.get("svc_req_approve_name", "")
+        keywords = context.user_data.get("svc_req_approve_keywords", [])
+        kw_str = ", ".join(keywords)
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"✅ Confirm (₹{price:.0f})", callback_data=f"svc_req_confirm_{request_id}")],
+            [InlineKeyboardButton("✏️ Edit Price", callback_data=f"svc_req_edit_price_{request_id}"),
+             InlineKeyboardButton("🔑 Edit Keywords", callback_data=f"svc_req_edit_kw_{request_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_back")],
+        ])
+        await update.message.reply_text(
+            f"✅ Price updated!\n\n🏷️ *{name}*\n💰 Price: *₹{price:.0f}*\n🔑 Keywords: `{kw_str}`\n\nConfirm karo ya aur edit karo:",
+            reply_markup=kb, parse_mode="Markdown"
+        )
+        return True
+
+    elif action == "svc_req_new_keywords":
+        raw = update.message.text.strip()
+        keywords = [k.strip().lower() for k in raw.split(",") if k.strip()]
+        if not keywords or len(keywords) > 15:
+            await update.message.reply_text("❌ 1-15 keywords daalo, comma se alag:")
+            return True
+
+        context.user_data["svc_req_approve_keywords"] = keywords
+        context.user_data["admin_action"] = "svc_req_edit_price"
+
+        request_id = context.user_data.get("svc_req_approve_id", "")
+        name = context.user_data.get("svc_req_approve_name", "")
+        price = context.user_data.get("svc_req_approve_price", 5.0)
+        kw_str = ", ".join(keywords)
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"✅ Confirm (₹{price:.0f})", callback_data=f"svc_req_confirm_{request_id}")],
+            [InlineKeyboardButton("✏️ Edit Price", callback_data=f"svc_req_edit_price_{request_id}"),
+             InlineKeyboardButton("🔑 Edit Keywords", callback_data=f"svc_req_edit_kw_{request_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_back")],
+        ])
+        await update.message.reply_text(
+            f"✅ Keywords updated!\n\n🏷️ *{name}*\n💰 Price: *₹{price:.0f}*\n🔑 Keywords: `{kw_str}`\n\nConfirm karo ya aur edit karo:",
+            reply_markup=kb, parse_mode="Markdown"
+        )
+        return True
+
+    elif action == "svc_req_reject_reason":
+        reason = update.message.text.strip()
+        if len(reason) < 3:
+            await update.message.reply_text("❌ Thoda zyada detail mein likho:")
+            return True
+
+        request_id = context.user_data.get("svc_req_reject_id", "")
+        user_id = context.user_data.get("svc_req_reject_user")
+        name = context.user_data.get("svc_req_reject_name", "")
+
+        context.user_data.pop("admin_action", None)
+        context.user_data.pop("svc_req_reject_id", None)
+        context.user_data.pop("svc_req_reject_user", None)
+        context.user_data.pop("svc_req_reject_name", None)
+
+        from database import update_service_request_status
+        await update_service_request_status(request_id, "rejected")
+
+        await update.message.reply_text(f"✅ Request rejected. User ko notify kar diya.")
+
+        # Notify user
+        try:
+            from keyboards import main_menu_keyboard
+            await update.get_bot().send_message(
+                chat_id=user_id,
+                text=(
+                    f"❌ *Service Request Rejected*\n\n"
+                    f"🏷️ Service: *{name}*\n\n"
+                    f"📝 *Reason:*\n_{reason}_\n\n"
+                    f"Koi aur service request kar sakte ho!"
+                ),
+                parse_mode="Markdown",
+                reply_markup=main_menu_keyboard()
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user {user_id} of rejection: {e}")
+        return True
+
+    return False
