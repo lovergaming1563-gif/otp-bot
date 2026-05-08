@@ -872,18 +872,18 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         raw = query.data.replace("confirm_buy_", "").strip()
-    if "__qty_" in raw:
-        parts = raw.rsplit("__qty_", 1)
-        service = parts[0] or "Myntra"
-        try:
-            user_qty = int(parts[1])
-            if user_qty < 1 or user_qty > 5:
+        if "__qty_" in raw:
+            parts = raw.rsplit("__qty_", 1)
+            service = parts[0] or "Myntra"
+            try:
+                user_qty = int(parts[1])
+                if user_qty < 1 or user_qty > 5:
+                    user_qty = 1
+            except Exception:
                 user_qty = 1
-        except Exception:
-            user_qty = 1
-    else:
-        service = raw or "Myntra"
-        user_qty = None  # use service default
+        else:
+            service = raw or "Myntra"
+            user_qty = None  # use service default
 
         # 🚀 Parallelize all independent reads (6 queries → 1 RTT)
         existing_session, db_user, settings, services_list, fs, has_used = await asyncio.gather(
