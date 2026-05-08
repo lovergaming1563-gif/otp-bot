@@ -266,7 +266,9 @@ async def group_health_check(context):
             name = doc.get("sender_name", "Unknown") or "Unknown"
             if name.startswith("user_") or name in ("Unknown", "BOOTSTRAP", "GROUP"):
                 return "(no username)"
-            return f"@{name}"
+            # Escape underscores so Markdown doesn't treat them as italic markers
+            safe = name.replace("_", "\_")
+            return f"@{safe}"
 
         def fmt_dur(mins):
             if mins < 1:
