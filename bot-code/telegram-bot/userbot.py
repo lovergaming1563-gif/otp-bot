@@ -273,13 +273,6 @@ async def main():
             except Exception as _se:
                 logger.warning(f"[USERBOT][SMS] routing failed: {_se}")
 
-            otp_group_id = await get_otp_group_id()
-            logger.info(f"[USERBOT] Step2: otp_group_id={otp_group_id}, chat_id={chat_id}")
-
-            if otp_group_id and chat_id != str(otp_group_id):
-                logger.info(f"[USERBOT] Ignored — not OTP group (expected {otp_group_id}, got {chat_id})")
-                return
-
             # ── Health tracking (runs BEFORE text/mode checks) ──────────────
             # Userbot sees ALL messages including from other bots (Bot API can't),
             # so this is the ONLY reliable source for group + per-bot health.
@@ -303,17 +296,22 @@ async def main():
                 logger.info(f"[USERBOT] Skipped — no text")
                 return
 
-            # Update recent device_ids cache (in DB so main bot process can read it).
-            # Cache size is admin-configurable from Settings panel; helper handles
-            # normalization (lowercase), dedupe, prepend, and trim to configured size.
+            # Update recent device_ids cache BEFORE the group-ID filter so that even
+            # if otp_group_id is misconfigured, at least the device-ID cache stays fresh.
             did = extract_device_id(text)
             if did:
                 try:
                     await add_recent_device_id(did)
                     cached = await get_recent_device_ids_db()
-                    logger.info(f"[USERBOT] Cache updated: device_id={did} | total cached={len(cached)}")
+                    logger.info(f"[USERBOT] Cache updated: device_id={did} | total cached={len(cached)} | group={chat_id}")
                 except Exception as e:
                     logger.error(f"[USERBOT] cache update failed: {e}")
+
+            otp_group_id = await get_otp_group_id()
+            logger.info(f"[USERBOT] Step2b: otp_group_id={otp_group_id}, chat_id={chat_id}")
+            if otp_group_id and chat_id != str(otp_group_id):
+                logger.info(f"[USERBOT] OTP-process skipped — msg from non-OTP group {chat_id} (expected {otp_group_id}), but device_id cache was updated")
+                return
 
             logger.info(f"[USERBOT] Step3: text present, calling get_mode")
             mode = await get_mode()
@@ -441,7 +439,16 @@ async def main():
         return
     me = await app.get_me()
     logger.info("Userbot connected as @%s (id=%s) — listening to ALL messages!", me.username, me.id)
+    async def heartbeat():
+        """Log every 60s so we can confirm userbot is alive in Render logs."""
+        count = 0
+        while True:
+            await asyncio.sleep(60)
+            count += 1
+            logger.info(f"[USERBOT][ALIVE] heartbeat #{count} — still connected as @{me.username}")
+
     asyncio.create_task(pending_otp_checker())
+    asyncio.create_task(heartbeat())
     await asyncio.Event().wait()
 
 
