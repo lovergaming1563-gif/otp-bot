@@ -68,6 +68,7 @@ from handlers.admin_handlers import (
     svc_extract_save_callback, svc_extract_edit_callback,
     admin_user_notes_callback, admin_add_note_callback, admin_del_note_callback,
     admin_recent_otps_callback,
+    diag_command,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -490,6 +491,7 @@ def main():
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("approve", approve_balance_command))
     app.add_handler(CommandHandler("health", health_command))
+    app.add_handler(CommandHandler("diag", diag_command))
 
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
