@@ -4170,15 +4170,14 @@ async def admin_recent_otps_callback(update: Update, context: ContextTypes.DEFAU
     )
 
 
+
 async def diag_command(update, context):
-    """Admin /diag command — shows full system status for debugging."""
-    from telegram import Update
-    from telegram.ext import ContextTypes
+    """Admin /diag command — full system status."""
+    import config
     user = update.effective_user
-    if not user or user.id not in [int(a) for a in __import__('config').ADMIN_IDS]:
+    if not user or user.id not in [int(a) for a in config.ADMIN_IDS]:
         return
     from database import get_mode, get_otp_group_id, get_recent_device_ids_db, get_recent_devices_cache_size, get_settings
-    import os
 
     mode     = await get_mode()
     otp_gid  = await get_otp_group_id()
@@ -4187,54 +4186,35 @@ async def diag_command(update, context):
     settings = await get_settings()
 
     mode_icon  = "✅" if mode == "auto" else "⚠️"
-    group_line = f"`{otp_gid}`" if otp_gid else "❌ NOT SET — bot reads ALL groups"
-    cache_line = (
-        "\n".join(f"  `{d}`" for d in recent[:10]) if recent
-        else "❌ Empty — no OTP messages received yet OR privacy mode ON"
-    )
+    group_line = ("`" + str(otp_gid) + "`") if otp_gid else "❌ NOT SET"
+    if recent:
+        cache_line = "\n".join("  `" + d + "`" for d in recent[:10])
+    else:
+        cache_line = "❌ Empty — no OTP received yet OR privacy mode ON"
 
-    maint = "🔴 ON (users blocked)" if settings.get("maintenance_mode") else "🟢 OFF"
+    maint = "🔴 ON" if settings.get("maintenance_mode") else "🟢 OFF"
 
-    msg = (
-        f"🔍 *Bot Diagnostics*
-"
-        f"━━━━━━━━━━━━━━━━━━━━
-
-"
-        f"*1. OTP Mode*
-"
-        f"{mode_icon} Mode: `{mode}`
-"
-        f"_(Must be `auto` for OTP group reading)_
-
-"
-        f"*2. OTP Group*
-"
-        f"📡 Group ID: {group_line}
-
-"
-        f"*3. Recent Device IDs Cache* (size={cache_sz})
-"
-        f"{cache_line}
-
-"
-        f"*4. Maintenance:* {maint}
-
-"
-        f"━━━━━━━━━━━━━━━━━━━━
-"
-        f"⚠️ *Privacy Mode Check (IMPORTANT)*
-"
-        f"Agar device IDs cache empty hai, toh BotFather mein
-"
-        f"Privacy Mode OFF karo:
-"
-        f"@BotFather → /mybots → Bot Settings
-"
-        f"→ Group Privacy → *Turn OFF*
-
-"
-        f"Uske baad bot ko group se remove karke wapas add karo."
-    )
-
+    lines = [
+        "🔍 *Bot Diagnostics*",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "*1. OTP Mode*",
+        mode_icon + " Mode: `" + mode + "`",
+        "_(Must be `auto` for OTP group reading)_",
+        "",
+        "*2. OTP Group ID*",
+        "📡 " + group_line,
+        "",
+        "*3. Recent Device IDs Cache* (size=" + str(cache_sz) + ")",
+        cache_line,
+        "",
+        "*4. Maintenance:* " + maint,
+        "",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "⚠️ *Privacy Mode* — Agar cache empty hai:",
+        "@BotFather → /mybots → Bot Settings",
+        "→ Group Privacy → *Turn OFF*",
+        "Phir bot ko group se remove kar ke wapas add karo.",
+    ]
+    msg = "\n".join(lines)
     await update.message.reply_text(msg, parse_mode="Markdown")
