@@ -433,9 +433,14 @@ async def main():
             except Exception as e:
                 logger.error(f"[USERBOT] pending_otp_checker error: {e}")
 
-    logger.info("Userbot starting...")
-    await app.start()
-    logger.info("Userbot connected — listening to group messages (including bots)!")
+    logger.info("Userbot starting... (API_ID=%s, SESSION_STRING length=%s)", API_ID, len(SESSION_STRING))
+    try:
+        await app.start()
+    except Exception as e:
+        logger.error("Userbot FAILED to connect: %s — check SESSION_STRING / API_ID / API_HASH on Render", e, exc_info=True)
+        return
+    me = await app.get_me()
+    logger.info("Userbot connected as @%s (id=%s) — listening to ALL messages!", me.username, me.id)
     asyncio.create_task(pending_otp_checker())
     await asyncio.Event().wait()
 
