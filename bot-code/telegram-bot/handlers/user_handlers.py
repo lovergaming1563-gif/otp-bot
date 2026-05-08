@@ -9,7 +9,7 @@ IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
 from database import (
-    get_user, create_user, get_session, update_session_status,
+    get_user, create_user, get_service_otp_count as get_service_otp_count, get_session, update_session_status,
     get_available_number, assign_number, atomic_get_and_assign_number, return_number_to_stock,
     create_session, create_manual_session, get_settings, add_log, delete_number_from_stock,
     get_user_history, get_user_history_filtered, get_user_top_services,
@@ -871,7 +871,19 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     try:
-        service = query.data.replace("confirm_buy_", "").strip() or "Myntra"
+        raw = query.data.replace("confirm_buy_", "").strip()
+    if "__qty_" in raw:
+        parts = raw.rsplit("__qty_", 1)
+        service = parts[0] or "Myntra"
+        try:
+            user_qty = int(parts[1])
+            if user_qty < 1 or user_qty > 5:
+                user_qty = 1
+        except Exception:
+            user_qty = 1
+    else:
+        service = raw or "Myntra"
+        user_qty = None  # use service default
 
         # 🚀 Parallelize all independent reads (6 queries → 1 RTT)
         existing_session, db_user, settings, services_list, fs, has_used = await asyncio.gather(
@@ -950,7 +962,8 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.edit_message_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
                 return
 
-            session = await create_session(user_id, number_doc["device_id"], number_doc["number"], service, price=price)
+            otp_count_override = user_qty if user_qty else await get_service_otp_count(service)
+            session = await create_session(user_id, number_doc["device_id"], number_doc["number"], service, price=price, otp_count=otp_count_override)
             if not session:
                 # create_session blocked — user already has a session (race condition caught)
                 await query.answer("⚠️ Aapka order already chal raha hai!", show_alert=True)
@@ -960,10 +973,12 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             wait_time = settings.get('wait_time', 5)
             num_str = number_doc['number']
             price_str = format_balance(price)
+            qty_display = otp_count_override if otp_count_override else 1
             text = (
                 f"{header('ORDER PLACED', '✅', '✅')}\n\n"
                 f"{field('Service', f'`{service}`', '🎯')}\n"
                 f"{field('Number', f'`{num_str}`', '📱')}\n"
+                f"{field('OTPs', f'*{qty_display}x*', '📦')}\n"
                 f"{field('Charged', f'*{price_str}*', '💰')}\n\n"
                 f"{card(['🔄  *Status:*  Waiting for OTP...', '', '⚡  OTP automatically deliver hoga', f'⏱  Wait window:  *{wait_time} min*', f'❌  Cancel allowed after:  *{cancel_time} min*'])}\n\n"
                 f"{DIV}\n"
@@ -979,7 +994,8 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
         else:
-            session = await create_manual_session(user_id, service, price=price)
+            otp_count_override = user_qty if user_qty else await get_service_otp_count(service)
+            session = await create_manual_session(user_id, service, price=price, otp_count=otp_count_override)
             text = (
                 f"{header('ORDER PLACED', '✅', '✅')}\n\n"
                 f"{field('Service', f'`{service}`', '🎯')}\n"
@@ -1705,7 +1721,7 @@ async def handle_svc_req_description(update: Update, context: ContextTypes.DEFAU
     )
     for aid in ADMIN_IDS:
         try:
-            await update.get_bot().send_message(
+            await context.bot.send_message(
                 chat_id=aid,
                 text=admin_msg,
                 parse_mode="Markdown",
