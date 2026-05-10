@@ -222,8 +222,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         deposit_method = context.user_data.get("deposit_method", "aloo")
 
         if deposit_method == "zapupi":
-            # ── ZapUPI flow ──────────────────────────────────────────────────
-            from handlers.user_handlers import _zapupi_make_order_id, _zapupi_create_order_sync
+            # ── UPI flow (via payment gateway) ───────────────────────────────
+            from handlers.user_handlers import _zapupi_make_order_id, _zapupi_create_order_sync, _zapupi_auto_check_job
             from keyboards import zapupi_pay_keyboard
             import asyncio as _asyncio
             context.user_data["deposit_amount"] = amount
@@ -235,19 +235,38 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "_error" in zap_result or not zap_result.get("payment_url"):
                 await update.message.reply_text(
                     f"{header('PAYMENT ERROR', '❌', '❌')}\n\n"
-                    f"ZapUPI se connect nahi ho saka. Thodi der baad try karo ya Aloo use karo.\n"
+                    f"Payment gateway se connect nahi ho saka. Thodi der baad try karo.\n"
                     f"Support: {SUPPORT_USERNAME}",
                     parse_mode="Markdown"
                 )
                 return
             payment_url = zap_result["payment_url"]
             zap_text = (
-                f"{header(f'PAY ₹{amount:.2f}', '⚡', '⚡')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{amount:.2f}', '⚡  *Via:*  ZapUPI', '🔄  *Auto-verify:*  ON'])}\n\n"
+                f"{header(f'PAY ₹{amount:.2f}', '💳', '💳')}\n\n"
+                f"{card([f'💰  *Amount:*  ₹{amount:.2f}', '💳  *Via:*  UPI', '⚡  *Auto-verify:*  ON'])}\n\n"
                 f"{DIV}\n"
                 f"👇  Neeche button dabao aur payment karo.\n"
-                f"✅  Payment ke baad *'Check Payment Status'* dabao."
+                f"✅  Payment hote hi balance *automatically* add ho jayega."
             )
+            chat_id = update.effective_chat.id
+            user_id_for_job = update.effective_user.id
+            # Start auto-polling job — checks every 15s, auto-credits on success
+            try:
+                context.application.job_queue.run_repeating(
+                    _zapupi_auto_check_job,
+                    interval=15,
+                    first=15,
+                    name=f"zapupi_{order_id}",
+                    data={
+                        "order_id": order_id,
+                        "user_id": user_id_for_job,
+                        "chat_id": chat_id,
+                        "amount": amount,
+                        "attempt": 0,
+                    }
+                )
+            except Exception as _je:
+                logger.warning(f"[ZAPUPI] job_queue error: {_je}")
             await update.message.reply_text(zap_text, reply_markup=zapupi_pay_keyboard(order_id, amount, payment_url), parse_mode="Markdown")
         else:
             # ── Aloo/default flow (UNCHANGED) ────────────────────────────────
