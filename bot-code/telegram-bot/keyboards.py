@@ -527,7 +527,7 @@ def service_request_cancel_keyboard():
 def payment_method_select_keyboard():
     keyboard = [
         [InlineKeyboardButton("🟡 Aloo Pay",      callback_data="pay_method_aloo")],
-        [InlineKeyboardButton("⚡ ZapUPI",        callback_data="pay_method_zapupi")],
+        [InlineKeyboardButton("💳 UPI Pay",       callback_data="pay_method_zapupi")],
         [InlineKeyboardButton("🔙 Back to Menu",  callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -535,7 +535,7 @@ def payment_method_select_keyboard():
 
 def zapupi_pay_keyboard(order_id: str, amount: float, payment_url: str):
     keyboard = [
-        [InlineKeyboardButton(f"💳 Pay ₹{amount:.2f} via ZapUPI", url=payment_url)],
+        [InlineKeyboardButton(f"💳 Pay ₹{amount:.2f} via UPI", url=payment_url)],
         [InlineKeyboardButton("✅ Check Payment Status", callback_data=f"zapupi_check_{order_id}")],
         [InlineKeyboardButton("❌ Cancel",               callback_data="main_menu")],
     ]
