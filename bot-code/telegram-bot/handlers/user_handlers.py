@@ -1279,7 +1279,7 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["deposit_method"] = "zapupi"
         text = (
             f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '⚡  *Payment via:*  ZapUPI', '🔄  *Processing:*  Auto-verify', '🔒  *100% Secure*'])}\n\n"
+            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Instant', '🔒  *100% Secure*'])}\n\n"
             f"{bonus_section}"
             f"{DIV}\n"
             f"⌨️  _Amount type karke neeche bhej:_\n\n"
@@ -1850,7 +1850,7 @@ async def select_payment_method_callback(update: Update, context: ContextTypes.D
     if method == "aloo":
         card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI (Aloo)', '⚡  *Processing:*  Auto-verify', '🔒  *100% Secure*']
     else:
-        card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '⚡  *Payment via:*  ZapUPI', '🔄  *Processing:*  Auto-verify', '🔒  *100% Secure*']
+        card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Instant', '🔒  *100% Secure*']
 
     text = (
         f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
@@ -1863,7 +1863,7 @@ async def select_payment_method_callback(update: Update, context: ContextTypes.D
 
 
 async def zapupi_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User clicked Check Payment Status for ZapUPI."""
+    """User clicked Check Payment Status — checks ZapUPI and credits balance if paid."""
     query = update.callback_query
     await query.answer("🔍 Status check ho raha hai...")
     order_id = query.data.replace("zapupi_check_", "")
@@ -1876,35 +1876,101 @@ async def zapupi_check_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer("❌ Status check failed. Thodi der baad try karo.", show_alert=True)
         return
 
-    status = result.get("data", {}).get("status", "") if isinstance(result.get("data"), dict) else result.get("status", "")
-    amount_paid = None
-    if isinstance(result.get("data"), dict):
-        amount_paid = result["data"].get("amount")
+    data_block = result.get("data") or {}
+    if isinstance(data_block, dict):
+        status = data_block.get("status", "") or result.get("status", "")
+        amount_paid = data_block.get("amount")
+    else:
+        status = result.get("status", "")
+        amount_paid = None
 
-    if status == "Success":
-        from database import get_user, update_balance, create_deposit, update_deposit_status, get_settings
+    if status in ("Success", "success", "PAID", "paid"):
+        from database import get_user, create_deposit, approve_deposit
         from keyboards import main_menu_keyboard
         amount = context.user_data.get("deposit_amount") or amount_paid
         if amount:
-            dep_id = await create_deposit(user_id, order_id, amount=float(amount))
-            await update_deposit_status(dep_id, "approved")
-            await update_balance(user_id, float(amount))
+            amount = float(amount)
+            dep_id = await create_deposit(user_id, order_id, amount=amount)
+            await approve_deposit(dep_id, amount)
             user = await get_user(user_id)
-            new_bal = user.get("balance", 0) if user else 0
-            context.user_data.pop("deposit_amount", None)
-            context.user_data.pop("deposit_method", None)
+            new_bal = float((user or {}).get("balance", 0))
+            for key in ("deposit_amount", "deposit_method", "zapupi_order_id"):
+                context.user_data.pop(key, None)
             await query.edit_message_text(
                 f"{header('PAYMENT SUCCESSFUL', '✅', '✅')}\n\n"
-                f"{card([f'💰  *Amount Added:*  ₹{float(amount):.2f}', f'👛  *New Balance:*  ₹{new_bal:.2f}', '✅  ZapUPI payment confirmed'])}\n\n"
+                f"{card([f'💰  *Amount Added:*  ₹{amount:.2f}', f'👛  *New Balance:*  ₹{new_bal:.2f}', '✅  Payment confirmed'])}\n\n"
                 f"{DIV}\n"
-                f"🎉 Balance add ho gaya! Bot use kar sakte ho.",
+                f"🎉 Balance add ho gaya! Ab bot use kar sakte ho.",
                 reply_markup=main_menu_keyboard(), parse_mode="Markdown"
             )
         else:
-            await query.answer("✅ Payment successful! Bot restart karo.", show_alert=True)
-    elif status == "Pending":
-        await query.answer("⏳ Payment abhi pending hai. 1-2 min baad check karo.", show_alert=True)
-    elif status == "Failed":
+            await query.answer("✅ Payment successful! /start karo.", show_alert=True)
+    elif status in ("Pending", "pending", "PENDING"):
+        await query.answer("⏳ Payment abhi pending hai. 1-2 min baad dobara check karo.", show_alert=True)
+    elif status in ("Failed", "failed", "FAILED"):
         await query.answer("❌ Payment failed. Dobara try karo.", show_alert=True)
     else:
-        await query.answer(f"Status: {status or 'Unknown'}. Thodi der baad check karo.", show_alert=True)
+        logger.warning(f"[ZAPUPI] Unknown status for {order_id}: {status!r} — full response: {result}")
+        await query.answer("⏳ Status abhi update nahi hua. Thodi der baad check karo.", show_alert=True)
+
+
+async def _zapupi_auto_check_job(context) -> None:
+    """Job queue task: auto-poll ZapUPI every 15s and credit balance on success."""
+    import asyncio as _asyncio
+    job = context.job
+    data = job.data
+    order_id   = data["order_id"]
+    user_id    = data["user_id"]
+    chat_id    = data["chat_id"]
+    amount     = float(data["amount"])
+    data["attempt"] = data.get("attempt", 0) + 1
+
+    if data["attempt"] > 24:          # 24 × 15s = 6 minutes max
+        job.schedule_removal()
+        return
+
+    result = await _asyncio.to_thread(_zapupi_check_status_sync, order_id)
+    if "_error" in result:
+        return                         # API error — keep polling
+
+    data_block = result.get("data") or {}
+    if isinstance(data_block, dict):
+        status = data_block.get("status", "") or result.get("status", "")
+    else:
+        status = result.get("status", "")
+
+    if status in ("Success", "success", "PAID", "paid"):
+        job.schedule_removal()
+        from database import create_deposit, approve_deposit, get_user
+        from keyboards import main_menu_keyboard
+        dep_id = await create_deposit(user_id, order_id, amount=amount)
+        await approve_deposit(dep_id, amount)
+        user = await get_user(user_id)
+        new_bal = float((user or {}).get("balance", 0))
+        logger.info(f"[ZAPUPI AUTO] ✅ Payment credited user={user_id} amount={amount} order={order_id}")
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"{header('PAYMENT SUCCESSFUL', '✅', '✅')}\n\n"
+                    f"{card([f'💰  *Amount Added:*  ₹{amount:.2f}', f'👛  *New Balance:*  ₹{new_bal:.2f}', '✅  Payment confirmed'])}\n\n"
+                    f"{DIV}\n"
+                    f"🎉 Balance add ho gaya! Ab bot use kar sakte ho."
+                ),
+                reply_markup=main_menu_keyboard(),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"[ZAPUPI AUTO] send_message failed: {e}")
+
+    elif status in ("Failed", "failed", "FAILED"):
+        job.schedule_removal()
+        logger.info(f"[ZAPUPI AUTO] ❌ Payment failed user={user_id} order={order_id}")
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ *Payment Failed*\n\nAapka payment process nahi hua. Dobara deposit karo.",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
