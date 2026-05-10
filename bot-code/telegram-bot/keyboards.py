@@ -419,13 +419,16 @@ def admin_logs_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def payment_method_select_keyboard(amount: float, aloo_enabled: bool = True, rocket_enabled: bool = False):
-    """User selects payment method when both are active."""
+def payment_method_select_keyboard(aloo_amount: float, rocket_amount: float, aloo_enabled: bool = True, rocket_enabled: bool = False):
+    """User selects payment method when both are active.
+    aloo_amount  — amount with random paise (for ALOO uniqueness)
+    rocket_amount — exact amount the user typed (Rocket uses order_id for uniqueness)
+    """
     keyboard = []
     if rocket_enabled:
-        keyboard.append([InlineKeyboardButton("🚀  Rocket", callback_data=f"pay_rocket_{amount}")])
+        keyboard.append([InlineKeyboardButton("🚀  Rocket", callback_data=f"pay_rocket_{rocket_amount}")])
     if aloo_enabled:
-        keyboard.append([InlineKeyboardButton("💳  ALOO", callback_data=f"pay_aloo_{amount}")])
+        keyboard.append([InlineKeyboardButton("💳  ALOO", callback_data=f"pay_aloo_{aloo_amount}")])
     keyboard.append([InlineKeyboardButton("❌  Cancel", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 

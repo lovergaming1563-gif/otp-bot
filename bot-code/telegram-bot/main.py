@@ -197,32 +197,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
-        unique_amount = _generate_unique_amount(amount)
-        context.user_data["deposit_amount"] = unique_amount
+        # unique_amount (with random paise) is ONLY for ALOO to identify the exact transfer.
+        # Rocket uses order_id for uniqueness, so it always gets the exact amount the user typed.
+        unique_amount = _generate_unique_amount(amount)   # ALOO only
+        exact_amount  = amount                             # Rocket (no paise randomisation)
+
+        context.user_data["deposit_amount"] = unique_amount  # ALOO default
+        context.user_data["exact_amount"]   = exact_amount
         context.user_data.pop("waiting_for", None)
         context.user_data.pop("paid_check_count", None)
 
         # ── Check which payment methods are enabled ──
         settings = await get_settings()
-        aloo_on = settings.get("aloo_payment_enabled", True)
+        aloo_on   = settings.get("aloo_payment_enabled",   True)
         rocket_on = settings.get("rocket_payment_enabled", False)
-        both_on = aloo_on and rocket_on
+        both_on   = aloo_on and rocket_on
 
         if both_on:
-            # Show payment method selection
+            # Show selection — user sees the original amount they typed
             sel_text = (
-                f"{header(f'SELECT PAYMENT METHOD', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{unique_amount:.2f}', '📲  Payment method choose karo'])}\n\n"
+                f"{header('SELECT PAYMENT METHOD', '💳', '💳')}\n\n"
+                f"{card([f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Payment method choose karo'])}\n\n"
                 f"{DIV}\n"
                 f"👇  Kaunse method se pay karna hai?"
             )
             await update.message.reply_text(
                 sel_text,
-                reply_markup=payment_method_select_keyboard(unique_amount, aloo_on, rocket_on),
+                reply_markup=payment_method_select_keyboard(
+                    aloo_amount=unique_amount,
+                    rocket_amount=exact_amount,
+                    aloo_enabled=aloo_on,
+                    rocket_enabled=rocket_on,
+                ),
                 parse_mode="Markdown"
             )
         elif rocket_on and not aloo_on:
-            # Only Rocket — directly show Rocket payment
+            # Only Rocket — use exact amount (no paise)
             from config import ZAP_KEY
             import time as _time
             import asyncio as _asyncio
@@ -233,11 +243,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown"
                 )
                 return
-            order_id = f"dep_{update.effective_user.id}_{int(unique_amount * 100)}_{int(_time.time())}"
+            context.user_data["deposit_amount"] = exact_amount
+            order_id = f"dep_{update.effective_user.id}_{int(exact_amount * 100)}_{int(_time.time())}"
             context.user_data["rocket_order_id"] = order_id
-            context.user_data["payment_method"] = "rocket"
+            context.user_data["payment_method"]  = "rocket"
             wait_msg = await update.message.reply_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
-            result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, unique_amount)
+            result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, exact_amount)
             if result.get("status") != "success":
                 err_msg = result.get("message", "Order create karne mein error aaya.")
                 await wait_msg.edit_text(
@@ -252,10 +263,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
             ])
             payment_text = (
-                f"{header(f'PAY ₹{unique_amount:.2f}', '🚀', '🚀')}\n\n"
-                f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{unique_amount:.2f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
+                f"{header(f'PAY ₹{exact_amount:.0f}', '🚀', '🚀')}\n\n"
+                f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
                 f"{DIV}\n"
-                f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo.*\n"
+                f"⚠️  *Exactly ₹{exact_amount:.0f} hi bhejo.*\n"
                 f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
             )
             await wait_msg.edit_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")

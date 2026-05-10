@@ -1,7 +1,7 @@
 import datetime
 import logging
 from zoneinfo import ZoneInfo
-from telegram import Update, InputMediaPhoto
+from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -1610,19 +1610,22 @@ async def pay_aloo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def pay_rocket_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """User selected Rocket payment method — create ZapUPI order and show payment link."""
+    """User selected Rocket payment method — create ZapUPI order and show payment link.
+    Rocket always uses the EXACT amount the user typed — no paise randomisation.
+    """
     query = update.callback_query
     await query.answer("🚀 Rocket payment initialize ho rahi hai...")
     user_id = query.from_user.id
-    cb = query.data  # e.g. "pay_rocket_150.37"
+    cb = query.data  # e.g. "pay_rocket_150" (exact amount, no paise)
     try:
-        unique_amount = float(cb[len("pay_rocket_"):])
+        exact_amount = float(cb[len("pay_rocket_"):])
     except (ValueError, IndexError):
-        unique_amount = context.user_data.get("deposit_amount")
-    if not unique_amount:
+        exact_amount = context.user_data.get("exact_amount") or context.user_data.get("deposit_amount")
+    if not exact_amount:
         await query.edit_message_text("❌ Session expire ho gaya. /start dabao.")
         return
-    context.user_data["deposit_amount"] = unique_amount
+    # Always store exact (no paise) amount for Rocket
+    context.user_data["deposit_amount"] = exact_amount
     context.user_data["payment_method"] = "rocket"
     context.user_data.pop("rocket_retries", None)
     from config import ZAP_KEY
@@ -1635,13 +1638,13 @@ async def pay_rocket_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
         )
         return
-    order_id = f"dep_{user_id}_{int(unique_amount * 100)}_{int(_time.time())}"
+    order_id = f"dep_{user_id}_{int(exact_amount * 100)}_{int(_time.time())}"
     context.user_data["rocket_order_id"] = order_id
     try:
         await query.edit_message_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
     except Exception:
         pass
-    result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, unique_amount)
+    result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, exact_amount)
     if result.get("status") != "success":
         err_msg = result.get("message", "Order create karne mein error aaya.")
         await query.edit_message_text(
@@ -1657,10 +1660,10 @@ async def pay_rocket_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
     ])
     payment_text = (
-        f"{header(f'PAY ₹{unique_amount:.2f}', '🚀', '🚀')}\n\n"
-        f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{unique_amount:.2f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
+        f"{header(f'PAY ₹{exact_amount:.0f}', '🚀', '🚀')}\n\n"
+        f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
         f"{DIV}\n"
-        f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo.*\n"
+        f"⚠️  *Exactly ₹{exact_amount:.0f} hi bhejo.*\n"
         f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
     )
     try:
