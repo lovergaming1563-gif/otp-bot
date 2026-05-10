@@ -9,7 +9,7 @@ IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
 from database import (
-    get_user, create_user, get_service_otp_count as get_service_otp_count, get_session, update_session_status,
+    get_user, create_user, get_session, update_session_status,
     get_available_number, assign_number, atomic_get_and_assign_number, return_number_to_stock,
     create_session, create_manual_session, get_settings, add_log, delete_number_from_stock,
     get_user_history, get_user_history_filtered, get_user_top_services,
@@ -42,7 +42,7 @@ import json as _json
 from urllib.request import urlopen
 from urllib.parse import quote as _urlquote
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME, ZAP_KEY
+from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME
 from ui import header, card, DIV
 
 _ALOO_API_URL = "https://bharataalu.animeverse23.in/api/v1/verify"
@@ -98,69 +98,6 @@ def _aloo_verify(amount: float) -> dict:
                 _time.sleep(2)
     return {"_error": "api_failed_after_retries"}
 
-
-
-# ── ZapUPI helper functions ──────────────────────────────────────────────────
-
-def _zapupi_make_order_id(user_id: int) -> str:
-    import time as _t
-    return f"TG{user_id}_{int(_t.time() * 1000)}"
-
-
-def _zapupi_create_order_sync(amount: float, order_id: str, user_id: int) -> dict:
-    if not ZAP_KEY:
-        logger.error("[ZAPUPI] ZAP_KEY not set!")
-        return {"_error": "not_configured"}
-    payload = _json.dumps({
-        "zap_key": ZAP_KEY,
-        "order_id": order_id,
-        "amount": str(amount),
-        "remark": f"TG_USER_{user_id}",
-    }).encode("utf-8")
-    from urllib.request import Request as _ZReq
-    req = _ZReq(
-        "https://pay.zapupi.com/api/create-order",
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    import time as _zt
-    for attempt in range(3):
-        try:
-            with urlopen(req, timeout=20) as resp:
-                raw = resp.read().decode()
-                logger.info(f"[ZAPUPI] create-order (attempt {attempt+1}): {raw[:300]}")
-                return _json.loads(raw)
-        except Exception as e:
-            logger.warning(f"[ZAPUPI] create-order error (attempt {attempt+1}): {e}")
-            if attempt < 2:
-                _zt.sleep(2)
-    return {"_error": "api_failed_after_retries"}
-
-
-def _zapupi_check_status_sync(order_id: str) -> dict:
-    if not ZAP_KEY:
-        return {"_error": "not_configured"}
-    payload = _json.dumps({"zap_key": ZAP_KEY, "order_id": order_id}).encode("utf-8")
-    from urllib.request import Request as _ZReq2
-    req = _ZReq2(
-        "https://pay.zapupi.com/api/order-status",
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    import time as _zt2
-    for attempt in range(3):
-        try:
-            with urlopen(req, timeout=20) as resp:
-                raw = resp.read().decode()
-                logger.info(f"[ZAPUPI] order-status (attempt {attempt+1}): {raw[:300]}")
-                return _json.loads(raw)
-        except Exception as e:
-            logger.warning(f"[ZAPUPI] order-status error (attempt {attempt+1}): {e}")
-            if attempt < 2:
-                _zt2.sleep(1)
-    return {"_error": "api_failed_after_retries"}
 
 async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """User clicked 'Maine Pay Kar Diya' — call ALOO API once to verify."""
@@ -934,19 +871,7 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     try:
-        raw = query.data.replace("confirm_buy_", "").strip()
-        if "__qty_" in raw:
-            parts = raw.rsplit("__qty_", 1)
-            service = parts[0] or "Myntra"
-            try:
-                user_qty = int(parts[1])
-                if user_qty < 1 or user_qty > 5:
-                    user_qty = 1
-            except Exception:
-                user_qty = 1
-        else:
-            service = raw or "Myntra"
-            user_qty = None  # use service default
+        service = query.data.replace("confirm_buy_", "").strip() or "Myntra"
 
         # 🚀 Parallelize all independent reads (6 queries → 1 RTT)
         existing_session, db_user, settings, services_list, fs, has_used = await asyncio.gather(
@@ -1025,8 +950,7 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.edit_message_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
                 return
 
-            otp_count_override = user_qty if user_qty else await get_service_otp_count(service)
-            session = await create_session(user_id, number_doc["device_id"], number_doc["number"], service, price=price, otp_count=otp_count_override)
+            session = await create_session(user_id, number_doc["device_id"], number_doc["number"], service, price=price)
             if not session:
                 # create_session blocked — user already has a session (race condition caught)
                 await query.answer("⚠️ Aapka order already chal raha hai!", show_alert=True)
@@ -1036,12 +960,10 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             wait_time = settings.get('wait_time', 5)
             num_str = number_doc['number']
             price_str = format_balance(price)
-            qty_display = otp_count_override if otp_count_override else 1
             text = (
                 f"{header('ORDER PLACED', '✅', '✅')}\n\n"
                 f"{field('Service', f'`{service}`', '🎯')}\n"
                 f"{field('Number', f'`{num_str}`', '📱')}\n"
-                f"{field('OTPs', f'*{qty_display}x*', '📦')}\n"
                 f"{field('Charged', f'*{price_str}*', '💰')}\n\n"
                 f"{card(['🔄  *Status:*  Waiting for OTP...', '', '⚡  OTP automatically deliver hoga', f'⏱  Wait window:  *{wait_time} min*', f'❌  Cancel allowed after:  *{cancel_time} min*'])}\n\n"
                 f"{DIV}\n"
@@ -1057,8 +979,7 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
         else:
-            otp_count_override = user_qty if user_qty else await get_service_otp_count(service)
-            session = await create_manual_session(user_id, service, price=price, otp_count=otp_count_override)
+            session = await create_manual_session(user_id, service, price=price)
             text = (
                 f"{header('ORDER PLACED', '✅', '✅')}\n\n"
                 f"{field('Service', f'`{service}`', '🎯')}\n"
@@ -1216,79 +1137,37 @@ async def auto_cancel_expired(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    from config import QR_CODE_FILE
-    from database import get_min_deposit, get_settings
-    from keyboards import payment_method_select_keyboard
+      query = update.callback_query
+      await query.answer()
+      import os
+      from config import QR_CODE_FILE
+      from database import get_min_deposit, get_settings
 
-    settings = await get_settings()
-    aloo_enabled   = settings.get("aloo_enabled",   True)
-    zapupi_enabled = settings.get("zapupi_enabled",  False)
+      slabs = await get_topup_slabs()
+      bonus_section = ""
+      if slabs:
+          slab_lines = ["💎  *TOP-UP BONUS ACTIVE*", ""]
+          for s in slabs:
+              mn = float(s.get("min", 0)); mx = float(s.get("max", 0)); pct = float(s.get("bonus_pct", 0))
+              slab_lines.append(f"   ₹{mn:g}–₹{mx:g}  →  *+{pct:g}% extra*")
+          bonus_section = f"{card(slab_lines)}\n\n"
 
-    slabs = await get_topup_slabs()
-    bonus_section = ""
-    if slabs:
-        slab_lines = ["💎  *TOP-UP BONUS ACTIVE*", ""]
-        for s in slabs:
-            mn = float(s.get("min", 0)); mx = float(s.get("max", 0)); pct = float(s.get("bonus_pct", 0))
-            slab_lines.append(f"   ₹{mn:g}–₹{mx:g}  →  *+{pct:g}% extra*")
-        bonus_section = f"{card(slab_lines)}\n\n"
+      min_dep = await get_min_deposit()
 
-    min_dep = await get_min_deposit()
+      context.user_data["waiting_for"] = "deposit_amount"
+      context.user_data.pop("deposit_amount", None)
 
-    if not aloo_enabled and not zapupi_enabled:
-        await query.edit_message_text(
-            f"{header('DEPOSIT UNAVAILABLE', '⚠️', '⚠️')}\n\n"
-            f"Payment methods abhi band hain.\n"
-            f"Admin se contact karo: {SUPPORT_USERNAME}",
-            reply_markup=back_keyboard(), parse_mode="Markdown"
-        )
-        return
+      text = (
+          f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+          f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Few minutes', '🔒  *100% Secure*'])}\n\n"
+          f"{bonus_section}"
+          f"{DIV}\n"
+          f"⌨️  _Amount type karke neeche bhej:_\n\n"
+          f"📝  *Examples:*  `50`, `100`, `500`"
+      )
+      await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
 
-    if aloo_enabled and zapupi_enabled:
-        context.user_data["deposit_min"] = min_dep
-        text = (
-            f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '🔒  *100% Secure*'])}\n\n"
-            f"{bonus_section}"
-            f"{DIV}\n"
-            f"💳  *Kaunsa payment method use karoge?*"
-        )
-        await query.edit_message_text(text, reply_markup=payment_method_select_keyboard(), parse_mode="Markdown")
-        return
-
-    if aloo_enabled:
-        context.user_data["waiting_for"] = "deposit_amount"
-        context.user_data.pop("deposit_amount", None)
-        context.user_data["deposit_method"] = "aloo"
-        text = (
-            f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI (Aloo)', '⚡  *Processing:*  Auto-verify', '🔒  *100% Secure*'])}\n\n"
-            f"{bonus_section}"
-            f"{DIV}\n"
-            f"⌨️  _Amount type karke neeche bhej:_\n\n"
-            f"📝  *Examples:*  `50`, `100`, `500`"
-        )
-        await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
-        return
-
-    if zapupi_enabled:
-        context.user_data["waiting_for"] = "deposit_amount"
-        context.user_data.pop("deposit_amount", None)
-        context.user_data["deposit_method"] = "zapupi"
-        text = (
-            f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Instant', '🔒  *100% Secure*'])}\n\n"
-            f"{bonus_section}"
-            f"{DIV}\n"
-            f"⌨️  _Amount type karke neeche bhej:_\n\n"
-            f"📝  *Examples:*  `50`, `100`, `500`"
-        )
-        await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
-        return
-
-
+  
 async def paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Legacy 'Paid' button — now replaced by 'Maine Pay Kar Diya' (i_paid). Stub kept for import compat."""
     q = update.callback_query
@@ -1651,326 +1530,3 @@ async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"📝  *Examples:*  `50`, `100`, `500`"
     )
     await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 📝 SERVICE REQUEST FEATURE
-# ══════════════════════════════════════════════════════════════════════════════
-
-DAILY_REQUEST_LIMIT = 2
-
-
-async def request_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    from database import get_user_daily_request_count
-    from keyboards import service_request_cancel_keyboard
-    from ui import header, card, DIV
-
-    count = await get_user_daily_request_count(user_id)
-    if count >= DAILY_REQUEST_LIMIT:
-        text = (
-            f"{header('REQUEST LIMIT', '⚠️', '⚠️')}\n\n"
-            f"{card([f'📊  Aaj ki requests: *{count}/{DAILY_REQUEST_LIMIT}*', '', '⏳  Kal phir try karna!', '   Daily limit: 2 requests/day'])}\n\n"
-            f"{DIV}"
-        )
-        await query.edit_message_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
-        return
-
-    context.user_data["waiting_for"] = "svc_req_name"
-    context.user_data.pop("svc_req_data", None)
-
-    text = (
-        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
-        f"{card(['📋  Step 1 of 4', '', '🏷️  Service ka naam kya hai?', '   (Jaise: Amazon, Swiggy, Zomato)'])}\n\n"
-        f"{DIV}\n"
-        f"⌨️  _Neeche type karke bhejo:_"
-    )
-    await query.edit_message_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
-
-
-async def handle_svc_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = update.message.text.strip()
-    from keyboards import service_request_cancel_keyboard
-    from ui import header, card, DIV
-
-    if len(name) < 2 or len(name) > 50:
-        await update.message.reply_text(
-            "❌ Naam 2-50 characters ka hona chahiye. Dobara likho:",
-            reply_markup=service_request_cancel_keyboard()
-        )
-        return
-
-    context.user_data["svc_req_data"] = {"name": name}
-    context.user_data["waiting_for"] = "svc_req_price"
-
-    text = (
-        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
-        f"{card(['📋  Step 2 of 4', '', f'✅  Service: *{name}*', '', '💰  Suggested price kya ho? (₹ mein)', '   (Jaise: 5, 10, 15)'])}\n\n"
-        f"{DIV}\n"
-        f"⌨️  _Amount type karke bhejo:_"
-    )
-    await update.message.reply_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
-
-
-async def handle_svc_req_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip().replace("₹", "").strip()
-    from keyboards import service_request_cancel_keyboard
-    from ui import header, card, DIV
-
-    try:
-        price = float(raw)
-        if price <= 0 or price > 1000:
-            raise ValueError
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Valid price daalo (₹1 se ₹1000 ke beech):",
-            reply_markup=service_request_cancel_keyboard()
-        )
-        return
-
-    context.user_data["svc_req_data"]["suggested_price"] = price
-    context.user_data["waiting_for"] = "svc_req_keywords"
-
-    name = context.user_data["svc_req_data"]["name"]
-    text = (
-        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
-        f"{card(['📋  Step 3 of 4', '', f'✅  Service: *{name}*', f'✅  Price: *₹{price:.0f}*', '', '🔑  Keywords daalo (comma se alag)', '   (Jo words OTP SMS mein aate hain)', '   Jaise: amazon, amzn, amazon.in'])}\n\n"
-        f"{DIV}\n"
-        f"⌨️  _Keywords type karke bhejo:_"
-    )
-    await update.message.reply_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
-
-
-async def handle_svc_req_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip()
-    from keyboards import service_request_cancel_keyboard
-    from ui import header, card, DIV
-
-    keywords = [k.strip().lower() for k in raw.split(",") if k.strip()]
-    if not keywords or len(keywords) > 10:
-        await update.message.reply_text(
-            "❌ 1 se 10 keywords daalo, comma se alag karke:",
-            reply_markup=service_request_cancel_keyboard()
-        )
-        return
-
-    context.user_data["svc_req_data"]["keywords"] = keywords
-    context.user_data["waiting_for"] = "svc_req_description"
-
-    name = context.user_data["svc_req_data"]["name"]
-    price = context.user_data["svc_req_data"]["suggested_price"]
-    kw_str = ", ".join(keywords)
-    text = (
-        f"{header('REQUEST A SERVICE', '📝', '📝')}\n\n"
-        f"{card(['📋  Step 4 of 4', '', f'✅  Service: *{name}*', f'✅  Price: *₹{price:.0f}*', f'✅  Keywords: `{kw_str}`', '', '📄  Thoda describe karo:', '   (Kyu chahiye? Kahan use hogi?)'])}\n\n"
-        f"{DIV}\n"
-        f"⌨️  _Description type karke bhejo:_"
-    )
-    await update.message.reply_text(text, reply_markup=service_request_cancel_keyboard(), parse_mode="Markdown")
-
-
-async def handle_svc_req_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    description = update.message.text.strip()
-    from keyboards import service_request_cancel_keyboard, service_request_admin_keyboard
-    from ui import header, card, DIV
-    from database import create_service_request
-    from config import ADMIN_IDS
-
-    if len(description) < 5 or len(description) > 300:
-        await update.message.reply_text(
-            "❌ Description 5-300 characters ka hona chahiye:",
-            reply_markup=service_request_cancel_keyboard()
-        )
-        return
-
-    data = context.user_data.get("svc_req_data", {})
-    name = data.get("name", "")
-    price = data.get("suggested_price", 0)
-    keywords = data.get("keywords", [])
-
-    context.user_data.pop("waiting_for", None)
-    context.user_data.pop("svc_req_data", None)
-
-    user_id = update.effective_user.id
-    user = update.effective_user
-    uname = f"@{user.username}" if user.username else (user.first_name or f"User {user_id}")
-
-    request_id = await create_service_request(user_id, name, price, keywords, description)
-
-    # Confirm to user
-    kw_str = ", ".join(keywords)
-    text = (
-        f"{header('REQUEST SUBMITTED', '✅', '✅')}\n\n"
-        f"{card([f'🏷️  Service: *{name}*', f'💰  Price: *₹{price:.0f}*', f'🔑  Keywords: `{kw_str}`', f'📄  Description: _{description}_'])}\n\n"
-        f"{DIV}\n"
-        f"⏳  _Admin review karega aur approve/reject karega!_\n"
-        f"🔔  _Result aapko notify kiya jayega._"
-    )
-    await update.message.reply_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
-
-    # Notify admins
-    admin_msg = (
-        f"📝 *New Service Request*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 User: {uname}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"🏷️ Service: *{name}*\n"
-        f"💰 Suggested Price: *₹{price:.0f}*\n"
-        f"🔑 Keywords: `{kw_str}`\n"
-        f"📄 Description: _{description}_\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 Request ID: `{request_id}`"
-    )
-    for aid in ADMIN_IDS:
-        try:
-            await context.bot.send_message(
-                chat_id=aid,
-                text=admin_msg,
-                parse_mode="Markdown",
-                reply_markup=service_request_admin_keyboard(request_id)
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify admin {aid} about service request: {e}")
-
-
-async def select_payment_method_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User chose Aloo or ZapUPI from the selection keyboard."""
-    query = update.callback_query
-    await query.answer()
-    from database import get_min_deposit
-    method = query.data.split("_")[-1]  # "aloo" or "zapupi"
-    context.user_data["deposit_method"] = method
-    context.user_data["waiting_for"] = "deposit_amount"
-    context.user_data.pop("deposit_amount", None)
-
-    min_dep = await get_min_deposit()
-    if method == "aloo":
-        card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI (Aloo)', '⚡  *Processing:*  Auto-verify', '🔒  *100% Secure*']
-    else:
-        card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Instant', '🔒  *100% Secure*']
-
-    text = (
-        f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-        f"{card(card_items)}\n\n"
-        f"{DIV}\n"
-        f"⌨️  _Amount type karke neeche bhej:_\n\n"
-        f"📝  *Examples:*  `50`, `100`, `500`"
-    )
-    await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
-
-
-async def zapupi_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User clicked Check Payment Status — checks ZapUPI and credits balance if paid."""
-    query = update.callback_query
-    await query.answer("🔍 Status check ho raha hai...")
-    order_id = query.data.replace("zapupi_check_", "")
-    user_id = query.from_user.id
-
-    import asyncio as _asyncio
-    result = await _asyncio.to_thread(_zapupi_check_status_sync, order_id)
-
-    if "_error" in result:
-        await query.answer("❌ Status check failed. Thodi der baad try karo.", show_alert=True)
-        return
-
-    data_block = result.get("data") or {}
-    if isinstance(data_block, dict):
-        status = data_block.get("status", "") or result.get("status", "")
-        amount_paid = data_block.get("amount")
-    else:
-        status = result.get("status", "")
-        amount_paid = None
-
-    if status in ("Success", "success", "PAID", "paid"):
-        from database import get_user, create_deposit, approve_deposit
-        from keyboards import main_menu_keyboard
-        amount = context.user_data.get("deposit_amount") or amount_paid
-        if amount:
-            amount = float(amount)
-            dep_id = await create_deposit(user_id, order_id, amount=amount)
-            await approve_deposit(dep_id, amount)
-            user = await get_user(user_id)
-            new_bal = float((user or {}).get("balance", 0))
-            for key in ("deposit_amount", "deposit_method", "zapupi_order_id"):
-                context.user_data.pop(key, None)
-            await query.edit_message_text(
-                f"{header('PAYMENT SUCCESSFUL', '✅', '✅')}\n\n"
-                f"{card([f'💰  *Amount Added:*  ₹{amount:.2f}', f'👛  *New Balance:*  ₹{new_bal:.2f}', '✅  Payment confirmed'])}\n\n"
-                f"{DIV}\n"
-                f"🎉 Balance add ho gaya! Ab bot use kar sakte ho.",
-                reply_markup=main_menu_keyboard(), parse_mode="Markdown"
-            )
-        else:
-            await query.answer("✅ Payment successful! /start karo.", show_alert=True)
-    elif status in ("Pending", "pending", "PENDING"):
-        await query.answer("⏳ Payment abhi pending hai. 1-2 min baad dobara check karo.", show_alert=True)
-    elif status in ("Failed", "failed", "FAILED"):
-        await query.answer("❌ Payment failed. Dobara try karo.", show_alert=True)
-    else:
-        logger.warning(f"[ZAPUPI] Unknown status for {order_id}: {status!r} — full response: {result}")
-        await query.answer("⏳ Status abhi update nahi hua. Thodi der baad check karo.", show_alert=True)
-
-
-async def _zapupi_auto_check_job(context) -> None:
-    """Job queue task: auto-poll ZapUPI every 15s and credit balance on success."""
-    import asyncio as _asyncio
-    job = context.job
-    data = job.data
-    order_id   = data["order_id"]
-    user_id    = data["user_id"]
-    chat_id    = data["chat_id"]
-    amount     = float(data["amount"])
-    data["attempt"] = data.get("attempt", 0) + 1
-
-    if data["attempt"] > 24:          # 24 × 15s = 6 minutes max
-        job.schedule_removal()
-        return
-
-    result = await _asyncio.to_thread(_zapupi_check_status_sync, order_id)
-    if "_error" in result:
-        return                         # API error — keep polling
-
-    data_block = result.get("data") or {}
-    if isinstance(data_block, dict):
-        status = data_block.get("status", "") or result.get("status", "")
-    else:
-        status = result.get("status", "")
-
-    if status in ("Success", "success", "PAID", "paid"):
-        job.schedule_removal()
-        from database import create_deposit, approve_deposit, get_user
-        from keyboards import main_menu_keyboard
-        dep_id = await create_deposit(user_id, order_id, amount=amount)
-        await approve_deposit(dep_id, amount)
-        user = await get_user(user_id)
-        new_bal = float((user or {}).get("balance", 0))
-        logger.info(f"[ZAPUPI AUTO] ✅ Payment credited user={user_id} amount={amount} order={order_id}")
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    f"{header('PAYMENT SUCCESSFUL', '✅', '✅')}\n\n"
-                    f"{card([f'💰  *Amount Added:*  ₹{amount:.2f}', f'👛  *New Balance:*  ₹{new_bal:.2f}', '✅  Payment confirmed'])}\n\n"
-                    f"{DIV}\n"
-                    f"🎉 Balance add ho gaya! Ab bot use kar sakte ho."
-                ),
-                reply_markup=main_menu_keyboard(),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"[ZAPUPI AUTO] send_message failed: {e}")
-
-    elif status in ("Failed", "failed", "FAILED"):
-        job.schedule_removal()
-        logger.info(f"[ZAPUPI AUTO] ❌ Payment failed user={user_id} order={order_id}")
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="❌ *Payment Failed*\n\nAapka payment process nahi hua. Dobara deposit karo.",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
