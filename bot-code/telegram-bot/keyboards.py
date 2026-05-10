@@ -425,7 +425,7 @@ def admin_logs_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bool = False):
+def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bool = False, aloo_enabled: bool = True, zapupi_enabled: bool = False):
     health_label = "🟢 Health Monitor: ON" if health_enabled else "🔴 Health Monitor: OFF"
     maint_label = "🛠 Maintenance: ON 🔴" if maintenance_enabled else "🛠 Maintenance: OFF 🟢"
     keyboard = [
@@ -448,6 +448,7 @@ def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bo
          InlineKeyboardButton("🔔 Reminder Gap", callback_data="set_health_reminder")],
         [InlineKeyboardButton("🤖 Bot Active Window", callback_data="set_health_window")],
         [InlineKeyboardButton("🔔 Per-Bot Alert Toggle", callback_data="admin_alert_bots")],
+        [InlineKeyboardButton("💳 Payment Methods", callback_data="admin_payment_methods")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -519,5 +520,34 @@ def service_request_admin_keyboard(request_id: str):
 def service_request_cancel_keyboard():
     keyboard = [
         [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def payment_method_select_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("🟡 Aloo Pay",      callback_data="pay_method_aloo")],
+        [InlineKeyboardButton("⚡ ZapUPI",        callback_data="pay_method_zapupi")],
+        [InlineKeyboardButton("🔙 Back to Menu",  callback_data="main_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def zapupi_pay_keyboard(order_id: str, amount: float, payment_url: str):
+    keyboard = [
+        [InlineKeyboardButton(f"💳 Pay ₹{amount:.2f} via ZapUPI", url=payment_url)],
+        [InlineKeyboardButton("✅ Check Payment Status", callback_data=f"zapupi_check_{order_id}")],
+        [InlineKeyboardButton("❌ Cancel",               callback_data="main_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_payment_methods_keyboard(aloo_enabled: bool = True, zapupi_enabled: bool = False):
+    aloo_label   = "🟡 Aloo:   ✅ ON"  if aloo_enabled   else "🟡 Aloo:   ❌ OFF"
+    zapupi_label = "⚡ ZapUPI: ✅ ON"  if zapupi_enabled else "⚡ ZapUPI: ❌ OFF"
+    keyboard = [
+        [InlineKeyboardButton(aloo_label,   callback_data="toggle_aloo")],
+        [InlineKeyboardButton(zapupi_label, callback_data="toggle_zapupi")],
+        [InlineKeyboardButton("🔙 Back to Settings", callback_data="admin_settings")],
     ]
     return InlineKeyboardMarkup(keyboard)
