@@ -25,9 +25,6 @@ UPI_ID = os.environ.get("UPI_ID", "BHARATPE.8B0L1T2H8C56136@fbpe")
 VERIFY_API_KEY = os.environ.get("VERIFY_API_KEY", "aalu_live_c99ce45d8606417a957b")
 VERIFY_MERCHANT_ID = os.environ.get("VERIFY_MERCHANT_ID", "68129118")
 
-# ZapUPI payment gateway
-ZAP_KEY = os.environ.get("ZAP_KEY", "")
-
 # Bot display settings
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "OTP Bot")
 SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME", "@support")
