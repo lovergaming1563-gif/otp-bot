@@ -504,6 +504,11 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     from database import get_recent_devices_cache_size, get_recent_device_ids_db
     cache_size = await get_recent_devices_cache_size()
     cache_now = await get_recent_device_ids_db()
+    # Payment method toggle status
+    aloo_enabled   = settings.get("aloo_enabled",   True)
+    zapupi_enabled = settings.get("zapupi_enabled",  False)
+    aloo_status    = "✅ ON" if aloo_enabled   else "❌ OFF"
+    zapupi_status  = "✅ ON" if zapupi_enabled else "❌ OFF"
     # Payment settings
     upi_now = await get_upi_id()
     upi_display = f"`{upi_now}`" if upi_now else "_Not set_"
@@ -530,8 +535,11 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
         f"⏰ Silence Threshold: {h_threshold} min\n"
         f"🔔 Reminder Gap: {h_reminder} min\n"
         f"🤖 Bot Active Window: {h_window} min\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💳 *Payment Methods*\n"
+        f"🟡 Aloo: {aloo_status}  |  ⚡ ZapUPI: {zapupi_status}\n"
     )
-    await query.edit_message_text(text, reply_markup=admin_settings_keyboard(h_enabled, m_enabled), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=admin_settings_keyboard(h_enabled, m_enabled, aloo_enabled, zapupi_enabled), parse_mode="Markdown")
 
 
 # ============================================================================
@@ -4499,3 +4507,73 @@ async def handle_svc_req_admin_text(update: Update, context: ContextTypes.DEFAUL
         return True
 
     return False
+
+
+# ============================================================================
+# Payment Methods Toggle (admin)
+# ============================================================================
+
+async def admin_payment_methods_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from database import get_settings
+    from keyboards import admin_payment_methods_keyboard
+    settings = await get_settings()
+    aloo_enabled   = settings.get("aloo_enabled",   True)
+    zapupi_enabled = settings.get("zapupi_enabled",  False)
+    text = (
+        f"💳 *Payment Methods*\n\n"
+        f"Yahan se payment methods on/off karo.\n\n"
+        f"🟡 *Aloo:*   {'✅ ON' if aloo_enabled else '❌ OFF'}\n"
+        f"⚡ *ZapUPI:* {'✅ ON' if zapupi_enabled else '❌ OFF'}\n\n"
+        f"_Note: Agar dono off hain to deposit band ho jayega._"
+    )
+    await query.edit_message_text(text, reply_markup=admin_payment_methods_keyboard(aloo_enabled, zapupi_enabled), parse_mode="Markdown")
+
+
+async def toggle_aloo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from database import get_settings, update_settings
+    from keyboards import admin_payment_methods_keyboard
+    settings = await get_settings()
+    aloo_enabled   = settings.get("aloo_enabled",   True)
+    zapupi_enabled = settings.get("zapupi_enabled",  False)
+    new_val = not aloo_enabled
+    await update_settings("aloo_enabled", new_val)
+    status = "✅ ON" if new_val else "❌ OFF"
+    text = (
+        f"💳 *Payment Methods*\n\n"
+        f"🟡 Aloo ab *{status}* hai.\n\n"
+        f"🟡 *Aloo:*   {'✅ ON' if new_val else '❌ OFF'}\n"
+        f"⚡ *ZapUPI:* {'✅ ON' if zapupi_enabled else '❌ OFF'}\n\n"
+        f"_Note: Agar dono off hain to deposit band ho jayega._"
+    )
+    await query.edit_message_text(text, reply_markup=admin_payment_methods_keyboard(new_val, zapupi_enabled), parse_mode="Markdown")
+
+
+async def toggle_zapupi_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from database import get_settings, update_settings
+    from keyboards import admin_payment_methods_keyboard
+    settings = await get_settings()
+    aloo_enabled   = settings.get("aloo_enabled",   True)
+    zapupi_enabled = settings.get("zapupi_enabled",  False)
+    new_val = not zapupi_enabled
+    await update_settings("zapupi_enabled", new_val)
+    status = "✅ ON" if new_val else "❌ OFF"
+    text = (
+        f"💳 *Payment Methods*\n\n"
+        f"⚡ ZapUPI ab *{status}* hai.\n\n"
+        f"🟡 *Aloo:*   {'✅ ON' if aloo_enabled else '❌ OFF'}\n"
+        f"⚡ *ZapUPI:* {'✅ ON' if new_val else '❌ OFF'}\n\n"
+        f"_Note: Agar dono off hain to deposit band ho jayega._"
+    )
+    await query.edit_message_text(text, reply_markup=admin_payment_methods_keyboard(aloo_enabled, new_val), parse_mode="Markdown")
