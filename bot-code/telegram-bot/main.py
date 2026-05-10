@@ -17,9 +17,6 @@ from handlers.user_handlers import (
     service_search_callback, service_page_callback,
     deposit_upi_callback,
     i_paid_handler, i_paid_retry_handler,
-    select_payment_method_callback, zapupi_check_callback,
-    request_service_callback,
-    handle_svc_req_name, handle_svc_req_price, handle_svc_req_keywords, handle_svc_req_description,
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
@@ -41,7 +38,6 @@ from handlers.admin_handlers import (
     toggle_maintenance_callback, set_maintenance_msg_callback,
     admin_export_callback, admin_wallet_balances_callback, admin_users_export_callback, admin_restore_balances_callback, handle_restore_backup_file, admin_mode_callback, mode_set_callback,
     admin_manual_callback, manual_number_callback, manual_otp_callback,
-    admin_payment_methods_callback, toggle_aloo_callback, toggle_zapupi_callback,
     ban_callback, unban_callback, addbal_callback, dedbal_callback,
     resetbal_callback, handle_admin_text, set_otp_group_callback,
     admin_top_spenders_callback, admin_reset_stats_callback,
@@ -73,9 +69,6 @@ from handlers.admin_handlers import (
     admin_user_notes_callback, admin_add_note_callback, admin_del_note_callback,
     admin_recent_otps_callback,
     diag_command,
-    svc_req_approve_callback, svc_req_confirm_callback,
-    svc_req_edit_price_callback, svc_req_edit_kw_callback,
-    svc_req_reject_callback, handle_svc_req_admin_text,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -90,9 +83,7 @@ logger = logging.getLogger(__name__)
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user and update.effective_user.id in ADMIN_IDS:
         if context.user_data.get("admin_action"):
-            handled = await handle_svc_req_admin_text(update, context)
-            if not handled:
-                await handle_admin_text(update, context)
+            await handle_admin_text(update, context)
             return
 
     if context.user_data.get("waiting_for") == "screenshot":
@@ -175,22 +166,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-    if context.user_data.get("waiting_for") == "svc_req_name":
-        await handle_svc_req_name(update, context)
-        return
-
-    if context.user_data.get("waiting_for") == "svc_req_price":
-        await handle_svc_req_price(update, context)
-        return
-
-    if context.user_data.get("waiting_for") == "svc_req_keywords":
-        await handle_svc_req_keywords(update, context)
-        return
-
-    if context.user_data.get("waiting_for") == "svc_req_description":
-        await handle_svc_req_description(update, context)
-        return
-
     if context.user_data.get("waiting_for") == "deposit_amount":
         from config import SUPPORT_USERNAME
         from database import get_upi_id, get_min_deposit
@@ -219,82 +194,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
-        deposit_method = context.user_data.get("deposit_method", "aloo")
-
-        if deposit_method == "zapupi":
-            # ── UPI flow (via payment gateway) ───────────────────────────────
-            from handlers.user_handlers import _zapupi_make_order_id, _zapupi_create_order_sync, _zapupi_auto_check_job
-            from keyboards import zapupi_pay_keyboard
-            import asyncio as _asyncio
-            context.user_data["deposit_amount"] = amount
-            context.user_data.pop("waiting_for", None)
-            context.user_data.pop("paid_check_count", None)
-            order_id = _zapupi_make_order_id(update.effective_user.id)
-            context.user_data["zapupi_order_id"] = order_id
-            zap_result = await _asyncio.to_thread(_zapupi_create_order_sync, amount, order_id, update.effective_user.id)
-            if "_error" in zap_result or not zap_result.get("payment_url"):
-                await update.message.reply_text(
-                    f"{header('PAYMENT ERROR', '❌', '❌')}\n\n"
-                    f"Payment gateway se connect nahi ho saka. Thodi der baad try karo.\n"
-                    f"Support: {SUPPORT_USERNAME}",
-                    parse_mode="Markdown"
-                )
-                return
-            payment_url = zap_result["payment_url"]
-            zap_text = (
-                f"{header(f'PAY ₹{amount:.2f}', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{amount:.2f}', '💳  *Via:*  UPI', '⚡  *Auto-verify:*  ON'])}\n\n"
-                f"{DIV}\n"
-                f"👇  Neeche button dabao aur payment karo.\n"
-                f"✅  Payment hote hi balance *automatically* add ho jayega."
-            )
-            chat_id = update.effective_chat.id
-            user_id_for_job = update.effective_user.id
-            # Start auto-polling job — checks every 15s, auto-credits on success
+        unique_amount = _generate_unique_amount(amount)
+        context.user_data["deposit_amount"] = unique_amount
+        context.user_data.pop("waiting_for", None)
+        context.user_data.pop("paid_check_count", None)
+        upi_id_dyn = await get_upi_id()
+        upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(contact support)_"
+        qr_buf = _make_payment_qr(upi_id_dyn, unique_amount)
+        pay_kb = _IKM([
+            [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"i_paid_{unique_amount}")],
+            [InlineKeyboardButton("❌ Cancel",            callback_data="main_menu")],
+        ])
+        payment_text = (
+            f"{header(f'PAY ₹{unique_amount:.2f}', '💳', '💳')}\n\n"
+            f"{card([f'💰  *Exact Amount:*  ₹{unique_amount:.2f}', upi_line, '📲  Kisi bhi UPI app se payment karo'])}\n\n"
+            f"{DIV}\n"
+            f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo* — ye unique amount sirf aapke liye hai.\n"
+            f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
+        )
+        if qr_buf:
             try:
-                context.application.job_queue.run_repeating(
-                    _zapupi_auto_check_job,
-                    interval=15,
-                    first=15,
-                    name=f"zapupi_{order_id}",
-                    data={
-                        "order_id": order_id,
-                        "user_id": user_id_for_job,
-                        "chat_id": chat_id,
-                        "amount": amount,
-                        "attempt": 0,
-                    }
-                )
-            except Exception as _je:
-                logger.warning(f"[ZAPUPI] job_queue error: {_je}")
-            await update.message.reply_text(zap_text, reply_markup=zapupi_pay_keyboard(order_id, amount, payment_url), parse_mode="Markdown")
-        else:
-            # ── Aloo/default flow (UNCHANGED) ────────────────────────────────
-            unique_amount = _generate_unique_amount(amount)
-            context.user_data["deposit_amount"] = unique_amount
-            context.user_data.pop("waiting_for", None)
-            context.user_data.pop("paid_check_count", None)
-            upi_id_dyn = await get_upi_id()
-            upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(contact support)_"
-            qr_buf = _make_payment_qr(upi_id_dyn, unique_amount)
-            pay_kb = _IKM([
-                [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"i_paid_{unique_amount}")],
-                [InlineKeyboardButton("❌ Cancel",            callback_data="main_menu")],
-            ])
-            payment_text = (
-                f"{header(f'PAY ₹{unique_amount:.2f}', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Exact Amount:*  ₹{unique_amount:.2f}', upi_line, '📲  Kisi bhi UPI app se payment karo'])}\n\n"
-                f"{DIV}\n"
-                f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo* — ye unique amount sirf aapke liye hai.\n"
-                f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
-            )
-            if qr_buf:
-                try:
-                    await update.message.reply_photo(photo=qr_buf, caption=payment_text, reply_markup=pay_kb, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
-            else:
+                await update.message.reply_photo(photo=qr_buf, caption=payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+            except Exception:
                 await update.message.reply_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
         return
     await update.message.reply_text("Use the menu buttons to navigate.")
 
@@ -584,11 +508,6 @@ def main():
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern="^deposit$"))
     app.add_handler(CallbackQueryHandler(i_paid_handler,       pattern="^i_paid(_[0-9.]+)?$"))
     app.add_handler(CallbackQueryHandler(i_paid_retry_handler, pattern="^i_paid_retry$"))
-    app.add_handler(CallbackQueryHandler(select_payment_method_callback, pattern="^pay_method_(aloo|zapupi)$"))
-    app.add_handler(CallbackQueryHandler(zapupi_check_callback,          pattern="^zapupi_check_"))
-    app.add_handler(CallbackQueryHandler(admin_payment_methods_callback, pattern="^admin_payment_methods$"))
-    app.add_handler(CallbackQueryHandler(toggle_aloo_callback,           pattern="^toggle_aloo$"))
-    app.add_handler(CallbackQueryHandler(toggle_zapupi_callback,         pattern="^toggle_zapupi$"))
 
     app.add_handler(CallbackQueryHandler(admin_back_callback, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_stats_callback, pattern="^admin_stats$"))
@@ -717,12 +636,6 @@ def main():
     app.add_handler(CallbackQueryHandler(promo_claimers_callback, pattern="^promo_claimers_"))
     app.add_handler(CallbackQueryHandler(promo_toggle_callback, pattern="^promo_toggle_"))
     app.add_handler(CallbackQueryHandler(promo_delete_callback, pattern="^promo_delete_"))
-    app.add_handler(CallbackQueryHandler(request_service_callback, pattern="^request_service$"))
-    app.add_handler(CallbackQueryHandler(svc_req_approve_callback, pattern="^svc_req_approve_"))
-    app.add_handler(CallbackQueryHandler(svc_req_confirm_callback, pattern="^svc_req_confirm_"))
-    app.add_handler(CallbackQueryHandler(svc_req_edit_price_callback, pattern="^svc_req_edit_price_"))
-    app.add_handler(CallbackQueryHandler(svc_req_edit_kw_callback, pattern="^svc_req_edit_kw_"))
-    app.add_handler(CallbackQueryHandler(svc_req_reject_callback, pattern="^svc_req_reject_"))
     app.add_handler(CallbackQueryHandler(redeem_promo_callback, pattern="^redeem_promo$"))
 
     app.add_handler(CallbackQueryHandler(admin_user_notes_callback, pattern="^notes_"))
