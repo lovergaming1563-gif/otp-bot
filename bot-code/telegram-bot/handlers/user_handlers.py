@@ -1502,6 +1502,288 @@ async def handle_utr_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await update.message.reply_text("ℹ️ Nayi process: amount type karo aur '✅ Maine Pay Kar Diya' dabao.", parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 
+# ============================================================
+# ZapUPI (Rocket) Payment Integration
+# ============================================================
+
+_ZAP_API_URL = "https://pay.zapupi.com/api"
+_MAX_ROCKET_RETRIES = 10
+
+
+def _zap_create_order(zap_key: str, order_id: str, amount: float) -> dict:
+    """Create a ZapUPI order. Returns response dict."""
+    import json as _json
+    import ssl as _ssl
+    import time as _time
+    from urllib.request import urlopen, Request as _Request
+    payload = _json.dumps({
+        "zap_key": zap_key,
+        "order_id": order_id,
+        "amount": str(amount),
+    }).encode()
+    _ssl_ctx = _ssl._create_unverified_context()
+    req = _Request(
+        f"{_ZAP_API_URL}/create-order",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    for attempt in range(3):
+        try:
+            with urlopen(req, context=_ssl_ctx, timeout=15) as resp:
+                raw = resp.read().decode()
+                logger.info(f"[ZAP] create_order response (attempt {attempt+1}): {raw[:300]}")
+                return _json.loads(raw)
+        except Exception as _e:
+            logger.warning(f"[ZAP] create_order error (attempt {attempt+1}): {_e}")
+            if attempt < 2:
+                _time.sleep(2)
+    return {"status": "error", "_error": "api_failed"}
+
+
+def _zap_order_status(zap_key: str, order_id: str) -> dict:
+    """Check ZapUPI order status. Returns response dict."""
+    import json as _json
+    import ssl as _ssl
+    import time as _time
+    from urllib.request import urlopen, Request as _Request
+    payload = _json.dumps({
+        "zap_key": zap_key,
+        "order_id": order_id,
+    }).encode()
+    _ssl_ctx = _ssl._create_unverified_context()
+    req = _Request(
+        f"{_ZAP_API_URL}/order-status",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    for attempt in range(3):
+        try:
+            with urlopen(req, context=_ssl_ctx, timeout=15) as resp:
+                raw = resp.read().decode()
+                logger.info(f"[ZAP] order_status response (attempt {attempt+1}): {raw[:300]}")
+                return _json.loads(raw)
+        except Exception as _e:
+            logger.warning(f"[ZAP] order_status error (attempt {attempt+1}): {_e}")
+            if attempt < 2:
+                _time.sleep(2)
+    return {"status": "error", "_error": "api_failed"}
+
+
+async def pay_aloo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """User selected ALOO payment method — show UPI/QR screen."""
+    query = update.callback_query
+    await query.answer()
+    cb = query.data  # e.g. "pay_aloo_150.37"
+    try:
+        unique_amount = float(cb[len("pay_aloo_"):])
+    except (ValueError, IndexError):
+        unique_amount = context.user_data.get("deposit_amount")
+    if not unique_amount:
+        await query.edit_message_text("❌ Session expire ho gaya. /start dabao.")
+        return
+    context.user_data["deposit_amount"] = unique_amount
+    context.user_data["payment_method"] = "aloo"
+    context.user_data.pop("paid_check_count", None)
+    from database import get_upi_id
+    upi_id_dyn = await get_upi_id()
+    upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(contact support)_"
+    qr_buf = _make_payment_qr(upi_id_dyn, unique_amount)
+    pay_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"i_paid_{unique_amount}")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
+    ])
+    payment_text = (
+        f"{header(f'PAY ₹{unique_amount:.2f}', '💳', '💳')}\n\n"
+        f"{card([f'💰  *Exact Amount:*  ₹{unique_amount:.2f}', upi_line, '📲  Kisi bhi UPI app se payment karo'])}\n\n"
+        f"{DIV}\n"
+        f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo* — ye unique amount sirf aapke liye hai.\n"
+        f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
+    )
+    if qr_buf:
+        try:
+            await query.message.reply_photo(photo=qr_buf, caption=payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+            await query.message.delete()
+        except Exception:
+            await query.edit_message_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+    else:
+        await query.edit_message_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+
+
+async def pay_rocket_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """User selected Rocket payment method — create ZapUPI order and show payment link."""
+    query = update.callback_query
+    await query.answer("🚀 Rocket payment initialize ho rahi hai...")
+    user_id = query.from_user.id
+    cb = query.data  # e.g. "pay_rocket_150.37"
+    try:
+        unique_amount = float(cb[len("pay_rocket_"):])
+    except (ValueError, IndexError):
+        unique_amount = context.user_data.get("deposit_amount")
+    if not unique_amount:
+        await query.edit_message_text("❌ Session expire ho gaya. /start dabao.")
+        return
+    context.user_data["deposit_amount"] = unique_amount
+    context.user_data["payment_method"] = "rocket"
+    context.user_data.pop("rocket_retries", None)
+    from config import ZAP_KEY
+    import time as _time
+    import asyncio as _asyncio
+    if not ZAP_KEY:
+        await query.edit_message_text(
+            "⚠️ *Rocket payment configured nahi hai.*\nAdmin se `ZAP_KEY` set karne ko kaho.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
+        )
+        return
+    order_id = f"dep_{user_id}_{int(unique_amount * 100)}_{int(_time.time())}"
+    context.user_data["rocket_order_id"] = order_id
+    try:
+        await query.edit_message_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
+    except Exception:
+        pass
+    result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, unique_amount)
+    if result.get("status") != "success":
+        err_msg = result.get("message", "Order create karne mein error aaya.")
+        await query.edit_message_text(
+            f"❌ *Rocket payment start nahi ho sakti.*\n\n_{err_msg}_\n\nDobaar try karo ya dusra method use karo.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
+        )
+        return
+    payment_url = result.get("payment_url", "")
+    pay_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔗 Pay Now — Rocket", url=payment_url)],
+        [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"rocket_paid_{order_id}")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
+    ])
+    payment_text = (
+        f"{header(f'PAY ₹{unique_amount:.2f}', '🚀', '🚀')}\n\n"
+        f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{unique_amount:.2f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
+        f"{DIV}\n"
+        f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo.*\n"
+        f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
+    )
+    try:
+        await query.edit_message_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+    except Exception:
+        pass
+
+
+async def rocket_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """User clicked 'Maine Pay Kar Diya' for Rocket payment — poll ZapUPI order-status."""
+    query = update.callback_query
+    await query.answer("🔍 Payment verify ho rahi hai...")
+    user_id = query.from_user.id
+    cb = query.data  # e.g. "rocket_paid_{order_id}"
+    order_id = cb[len("rocket_paid_"):]
+    if not order_id:
+        order_id = context.user_data.get("rocket_order_id", "")
+    unique_amount = context.user_data.get("deposit_amount")
+    retries = context.user_data.get("rocket_retries", 0)
+    if retries >= _MAX_ROCKET_RETRIES:
+        context.user_data.pop("rocket_retries", None)
+        context.user_data.pop("deposit_amount", None)
+        context.user_data.pop("rocket_order_id", None)
+        msg = "❌ *Bahut zyada retries.* /start se dobara try karo."
+        try:
+            await query.edit_message_text(msg, parse_mode="Markdown")
+        except Exception:
+            pass
+        return
+    context.user_data["rocket_retries"] = retries + 1
+    checking_msg = f"🔍 *Payment verify ho rahi hai...* (Attempt {retries + 1}/{_MAX_ROCKET_RETRIES})\n\nEk second ruko..."
+    try:
+        await query.edit_message_text(checking_msg, parse_mode="Markdown")
+    except Exception:
+        pass
+    from config import ZAP_KEY
+    import asyncio as _asyncio
+    result = await _asyncio.to_thread(_zap_order_status, ZAP_KEY, order_id)
+    data = result.get("data", {}) or {}
+    status = data.get("status", "")
+    if status == "Success":
+        utr = data.get("utr", "") or f"rocket_{order_id}"
+        context.user_data.pop("rocket_retries", None)
+        context.user_data.pop("deposit_amount", None)
+        context.user_data.pop("rocket_order_id", None)
+        from database import (
+            auto_approve_deposit_with_utr, is_utr_used, get_settings,
+            get_user, add_referral_bonus, add_log,
+            compute_topup_bonus, credit_topup_bonus,
+        )
+        from config import ADMIN_IDS as _AIDS
+        if await is_utr_used(utr):
+            msg = f"⚠️ *Yeh payment pehle se credited hai.*\n❓ Help → {SUPPORT_USERNAME}"
+            try:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            except Exception:
+                pass
+            return
+        pay_amount = float(data.get("pay_amount") or unique_amount or 0)
+        await auto_approve_deposit_with_utr(
+            user_id=user_id,
+            amount=pay_amount,
+            utr=utr,
+            gmail_subject="Rocket-Auto-Verify",
+        )
+        bonus = 0.0
+        try:
+            bonus, _ = await compute_topup_bonus(pay_amount)
+            if bonus > 0:
+                await credit_topup_bonus(user_id, bonus)
+        except Exception as _be:
+            logger.error(f"[ROCKET] topup bonus error: {_be}")
+        try:
+            settings = await get_settings()
+            ref_pct = settings.get("referral_percent", 5)
+            db_user = await get_user(user_id)
+            if db_user and db_user.get("referrer_id"):
+                ref_bonus = pay_amount * ref_pct / 100
+                await add_referral_bonus(db_user["referrer_id"], ref_bonus)
+                await add_log("referral_bonus", {"user_id": db_user["referrer_id"], "from_user": user_id, "amount": ref_bonus})
+                try:
+                    await context.bot.send_message(chat_id=db_user["referrer_id"], text=f"🎁 Referral bonus! ₹{ref_bonus:.2f} earn kiya.")
+                except Exception:
+                    pass
+        except Exception as _re:
+            logger.error(f"[ROCKET] referral error: {_re}")
+        await add_log("deposit_approved", {"user_id": user_id, "amount": pay_amount, "auto": True, "utr": utr, "method": "rocket_button"})
+        bonus_line = f"\n🎁  Bonus:  *+₹{bonus:.2f}*" if bonus > 0 else ""
+        ok_text = (
+            f"{header('DEPOSIT APPROVED', '✅', '✅')}\n\n"
+            f"{card([f'💰  Amount:  *₹{pay_amount:.2f}*', f'🔢  UTR:  `{utr}`', '🚀  Rocket Auto-verified'])}\n\n"
+            f"{bonus_line}\n{DIV}\n✨  _Balance update ho gaya — order karo!_"
+        )
+        try:
+            await query.edit_message_text(ok_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        except Exception:
+            pass
+        for _aid in _AIDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=_aid,
+                    text=f"✅ Rocket deposit approved\nUser: `{user_id}`\nAmount: ₹{pay_amount:.2f}\nUTR: `{utr}`\nBonus: ₹{bonus:.2f}",
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
+    else:
+        baki = _MAX_ROCKET_RETRIES - retries - 1
+        retry_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Dobara Check Karo", callback_data=f"rocket_paid_{order_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
+        ])
+        msg = (
+            f"⚠️ *Payment abhi detect nahi hui.*\n\n"
+            f"Agar pay kar diya hai toh thodi der baad retry karo.\n"
+            f"_(Attempts remaining: {baki})_"
+        )
+        try:
+            await query.edit_message_text(msg, reply_markup=retry_kb, parse_mode="Markdown")
+        except Exception:
+            pass
+
+
 async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """User selected UPI deposit method."""
     query = update.callback_query

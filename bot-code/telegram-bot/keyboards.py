@@ -419,7 +419,18 @@ def admin_logs_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bool = False):
+def payment_method_select_keyboard(amount: float, aloo_enabled: bool = True, rocket_enabled: bool = False):
+    """User selects payment method when both are active."""
+    keyboard = []
+    if rocket_enabled:
+        keyboard.append([InlineKeyboardButton("🚀  Rocket", callback_data=f"pay_rocket_{amount}")])
+    if aloo_enabled:
+        keyboard.append([InlineKeyboardButton("💳  ALOO", callback_data=f"pay_aloo_{amount}")])
+    keyboard.append([InlineKeyboardButton("❌  Cancel", callback_data="main_menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bool = False, aloo_enabled: bool = True, rocket_enabled: bool = False):
     health_label = "🟢 Health Monitor: ON" if health_enabled else "🔴 Health Monitor: OFF"
     maint_label = "🛠 Maintenance: ON 🔴" if maintenance_enabled else "🛠 Maintenance: OFF 🟢"
     keyboard = [
@@ -442,6 +453,9 @@ def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bo
          InlineKeyboardButton("🔔 Reminder Gap", callback_data="set_health_reminder")],
         [InlineKeyboardButton("🤖 Bot Active Window", callback_data="set_health_window")],
         [InlineKeyboardButton("🔔 Per-Bot Alert Toggle", callback_data="admin_alert_bots")],
+        [InlineKeyboardButton("━━━ Payment Methods ━━━", callback_data="noop")],
+        [InlineKeyboardButton(f"{'🟢' if aloo_enabled else '🔴'} ALOO: {'ON' if aloo_enabled else 'OFF'}", callback_data="toggle_aloo_payment"),
+         InlineKeyboardButton(f"{'🟢' if rocket_enabled else '🔴'} Rocket: {'ON' if rocket_enabled else 'OFF'}", callback_data="toggle_rocket_payment")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
     ]
     return InlineKeyboardMarkup(keyboard)

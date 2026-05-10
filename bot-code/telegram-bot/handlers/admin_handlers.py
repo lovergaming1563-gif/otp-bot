@@ -510,6 +510,11 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     min_dep = await get_min_deposit()
     import os
     qr_display = "✅ Set" if os.path.exists("qr.png") else "❌ Not uploaded"
+    # Payment method toggles
+    aloo_enabled = settings.get("aloo_payment_enabled", True)
+    rocket_enabled = settings.get("rocket_payment_enabled", False)
+    aloo_status = "🟢 ON" if aloo_enabled else "🔴 OFF"
+    rocket_status = "🟢 ON" if rocket_enabled else "🔴 OFF"
     text = (
         f"⚙️ *Settings*\n\n"
         f"💵 OTP Price: {format_balance(settings.get('otp_price', 5))}\n"
@@ -523,6 +528,9 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
         f"🧠 Smart Match Cache: *{cache_size}* slots ({len(cache_now)} cached now)\n"
         f"📡 OTP Group: {group_display}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
+        f"💳 *Payment Methods*\n"
+        f"ALOO: {aloo_status}  |  Rocket: {rocket_status}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
         f"🛠 *Maintenance Mode*: {m_status}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📡 *Group Health Monitor*\n"
@@ -531,7 +539,37 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
         f"🔔 Reminder Gap: {h_reminder} min\n"
         f"🤖 Bot Active Window: {h_window} min\n"
     )
-    await query.edit_message_text(text, reply_markup=admin_settings_keyboard(h_enabled, m_enabled), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=admin_settings_keyboard(h_enabled, m_enabled, aloo_enabled, rocket_enabled), parse_mode="Markdown")
+
+
+# ============================================================================
+# Payment Method Toggles (admin)
+# ============================================================================
+
+async def toggle_aloo_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    settings = await get_settings()
+    current = settings.get("aloo_payment_enabled", True)
+    await update_settings("aloo_payment_enabled", not current)
+    new_label = "🟢 ON" if not current else "🔴 OFF"
+    await query.answer(f"ALOO payment: {new_label}", show_alert=True)
+    await admin_settings_callback(update, context)
+
+
+async def toggle_rocket_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    settings = await get_settings()
+    current = settings.get("rocket_payment_enabled", False)
+    await update_settings("rocket_payment_enabled", not current)
+    new_label = "🟢 ON" if not current else "🔴 OFF"
+    await query.answer(f"Rocket payment: {new_label}", show_alert=True)
+    await admin_settings_callback(update, context)
 
 
 # ============================================================================
