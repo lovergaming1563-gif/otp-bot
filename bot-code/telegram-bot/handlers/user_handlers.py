@@ -42,7 +42,7 @@ import json as _json
 from urllib.request import urlopen
 from urllib.parse import quote as _urlquote
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME
+from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME, ZAP_KEY
 from ui import header, card, DIV
 
 _ALOO_API_URL = "https://bharataalu.animeverse23.in/api/v1/verify"
@@ -98,6 +98,69 @@ def _aloo_verify(amount: float) -> dict:
                 _time.sleep(2)
     return {"_error": "api_failed_after_retries"}
 
+
+
+# ── ZapUPI helper functions ──────────────────────────────────────────────────
+
+def _zapupi_make_order_id(user_id: int) -> str:
+    import time as _t
+    return f"TG{user_id}_{int(_t.time() * 1000)}"
+
+
+def _zapupi_create_order_sync(amount: float, order_id: str, user_id: int) -> dict:
+    if not ZAP_KEY:
+        logger.error("[ZAPUPI] ZAP_KEY not set!")
+        return {"_error": "not_configured"}
+    payload = _json.dumps({
+        "zap_key": ZAP_KEY,
+        "order_id": order_id,
+        "amount": str(amount),
+        "remark": f"TG_USER_{user_id}",
+    }).encode("utf-8")
+    from urllib.request import Request as _ZReq
+    req = _ZReq(
+        "https://pay.zapupi.com/api/create-order",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    import time as _zt
+    for attempt in range(3):
+        try:
+            with urlopen(req, timeout=20) as resp:
+                raw = resp.read().decode()
+                logger.info(f"[ZAPUPI] create-order (attempt {attempt+1}): {raw[:300]}")
+                return _json.loads(raw)
+        except Exception as e:
+            logger.warning(f"[ZAPUPI] create-order error (attempt {attempt+1}): {e}")
+            if attempt < 2:
+                _zt.sleep(2)
+    return {"_error": "api_failed_after_retries"}
+
+
+def _zapupi_check_status_sync(order_id: str) -> dict:
+    if not ZAP_KEY:
+        return {"_error": "not_configured"}
+    payload = _json.dumps({"zap_key": ZAP_KEY, "order_id": order_id}).encode("utf-8")
+    from urllib.request import Request as _ZReq2
+    req = _ZReq2(
+        "https://pay.zapupi.com/api/order-status",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    import time as _zt2
+    for attempt in range(3):
+        try:
+            with urlopen(req, timeout=20) as resp:
+                raw = resp.read().decode()
+                logger.info(f"[ZAPUPI] order-status (attempt {attempt+1}): {raw[:300]}")
+                return _json.loads(raw)
+        except Exception as e:
+            logger.warning(f"[ZAPUPI] order-status error (attempt {attempt+1}): {e}")
+            if attempt < 2:
+                _zt2.sleep(1)
+    return {"_error": "api_failed_after_retries"}
 
 async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """User clicked 'Maine Pay Kar Diya' — call ALOO API once to verify."""
@@ -1153,37 +1216,79 @@ async def auto_cancel_expired(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-      query = update.callback_query
-      await query.answer()
-      import os
-      from config import QR_CODE_FILE
-      from database import get_min_deposit, get_settings
+    query = update.callback_query
+    await query.answer()
+    from config import QR_CODE_FILE
+    from database import get_min_deposit, get_settings
+    from keyboards import payment_method_select_keyboard
 
-      slabs = await get_topup_slabs()
-      bonus_section = ""
-      if slabs:
-          slab_lines = ["💎  *TOP-UP BONUS ACTIVE*", ""]
-          for s in slabs:
-              mn = float(s.get("min", 0)); mx = float(s.get("max", 0)); pct = float(s.get("bonus_pct", 0))
-              slab_lines.append(f"   ₹{mn:g}–₹{mx:g}  →  *+{pct:g}% extra*")
-          bonus_section = f"{card(slab_lines)}\n\n"
+    settings = await get_settings()
+    aloo_enabled   = settings.get("aloo_enabled",   True)
+    zapupi_enabled = settings.get("zapupi_enabled",  False)
 
-      min_dep = await get_min_deposit()
+    slabs = await get_topup_slabs()
+    bonus_section = ""
+    if slabs:
+        slab_lines = ["💎  *TOP-UP BONUS ACTIVE*", ""]
+        for s in slabs:
+            mn = float(s.get("min", 0)); mx = float(s.get("max", 0)); pct = float(s.get("bonus_pct", 0))
+            slab_lines.append(f"   ₹{mn:g}–₹{mx:g}  →  *+{pct:g}% extra*")
+        bonus_section = f"{card(slab_lines)}\n\n"
 
-      context.user_data["waiting_for"] = "deposit_amount"
-      context.user_data.pop("deposit_amount", None)
+    min_dep = await get_min_deposit()
 
-      text = (
-          f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
-          f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Few minutes', '🔒  *100% Secure*'])}\n\n"
-          f"{bonus_section}"
-          f"{DIV}\n"
-          f"⌨️  _Amount type karke neeche bhej:_\n\n"
-          f"📝  *Examples:*  `50`, `100`, `500`"
-      )
-      await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
+    if not aloo_enabled and not zapupi_enabled:
+        await query.edit_message_text(
+            f"{header('DEPOSIT UNAVAILABLE', '⚠️', '⚠️')}\n\n"
+            f"Payment methods abhi band hain.\n"
+            f"Admin se contact karo: {SUPPORT_USERNAME}",
+            reply_markup=back_keyboard(), parse_mode="Markdown"
+        )
+        return
 
-  
+    if aloo_enabled and zapupi_enabled:
+        context.user_data["deposit_min"] = min_dep
+        text = (
+            f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '🔒  *100% Secure*'])}\n\n"
+            f"{bonus_section}"
+            f"{DIV}\n"
+            f"💳  *Kaunsa payment method use karoge?*"
+        )
+        await query.edit_message_text(text, reply_markup=payment_method_select_keyboard(), parse_mode="Markdown")
+        return
+
+    if aloo_enabled:
+        context.user_data["waiting_for"] = "deposit_amount"
+        context.user_data.pop("deposit_amount", None)
+        context.user_data["deposit_method"] = "aloo"
+        text = (
+            f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI (Aloo)', '⚡  *Processing:*  Auto-verify', '🔒  *100% Secure*'])}\n\n"
+            f"{bonus_section}"
+            f"{DIV}\n"
+            f"⌨️  _Amount type karke neeche bhej:_\n\n"
+            f"📝  *Examples:*  `50`, `100`, `500`"
+        )
+        await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
+        return
+
+    if zapupi_enabled:
+        context.user_data["waiting_for"] = "deposit_amount"
+        context.user_data.pop("deposit_amount", None)
+        context.user_data["deposit_method"] = "zapupi"
+        text = (
+            f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+            f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '⚡  *Payment via:*  ZapUPI', '🔄  *Processing:*  Auto-verify', '🔒  *100% Secure*'])}\n\n"
+            f"{bonus_section}"
+            f"{DIV}\n"
+            f"⌨️  _Amount type karke neeche bhej:_\n\n"
+            f"📝  *Examples:*  `50`, `100`, `500`"
+        )
+        await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
+        return
+
+
 async def paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Legacy 'Paid' button — now replaced by 'Maine Pay Kar Diya' (i_paid). Stub kept for import compat."""
     q = update.callback_query
@@ -1729,3 +1834,77 @@ async def handle_svc_req_description(update: Update, context: ContextTypes.DEFAU
             )
         except Exception as e:
             logger.error(f"Failed to notify admin {aid} about service request: {e}")
+
+
+async def select_payment_method_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User chose Aloo or ZapUPI from the selection keyboard."""
+    query = update.callback_query
+    await query.answer()
+    from database import get_min_deposit
+    method = query.data.split("_")[-1]  # "aloo" or "zapupi"
+    context.user_data["deposit_method"] = method
+    context.user_data["waiting_for"] = "deposit_amount"
+    context.user_data.pop("deposit_amount", None)
+
+    min_dep = await get_min_deposit()
+    if method == "aloo":
+        card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI (Aloo)', '⚡  *Processing:*  Auto-verify', '🔒  *100% Secure*']
+    else:
+        card_items = [f'💵  *Minimum:*  ₹{min_dep:.0f}', '⚡  *Payment via:*  ZapUPI', '🔄  *Processing:*  Auto-verify', '🔒  *100% Secure*']
+
+    text = (
+        f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+        f"{card(card_items)}\n\n"
+        f"{DIV}\n"
+        f"⌨️  _Amount type karke neeche bhej:_\n\n"
+        f"📝  *Examples:*  `50`, `100`, `500`"
+    )
+    await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
+
+
+async def zapupi_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User clicked Check Payment Status for ZapUPI."""
+    query = update.callback_query
+    await query.answer("🔍 Status check ho raha hai...")
+    order_id = query.data.replace("zapupi_check_", "")
+    user_id = query.from_user.id
+
+    import asyncio as _asyncio
+    result = await _asyncio.to_thread(_zapupi_check_status_sync, order_id)
+
+    if "_error" in result:
+        await query.answer("❌ Status check failed. Thodi der baad try karo.", show_alert=True)
+        return
+
+    status = result.get("data", {}).get("status", "") if isinstance(result.get("data"), dict) else result.get("status", "")
+    amount_paid = None
+    if isinstance(result.get("data"), dict):
+        amount_paid = result["data"].get("amount")
+
+    if status == "Success":
+        from database import get_user, update_balance, create_deposit, update_deposit_status, get_settings
+        from keyboards import main_menu_keyboard
+        amount = context.user_data.get("deposit_amount") or amount_paid
+        if amount:
+            dep_id = await create_deposit(user_id, order_id, amount=float(amount))
+            await update_deposit_status(dep_id, "approved")
+            await update_balance(user_id, float(amount))
+            user = await get_user(user_id)
+            new_bal = user.get("balance", 0) if user else 0
+            context.user_data.pop("deposit_amount", None)
+            context.user_data.pop("deposit_method", None)
+            await query.edit_message_text(
+                f"{header('PAYMENT SUCCESSFUL', '✅', '✅')}\n\n"
+                f"{card([f'💰  *Amount Added:*  ₹{float(amount):.2f}', f'👛  *New Balance:*  ₹{new_bal:.2f}', '✅  ZapUPI payment confirmed'])}\n\n"
+                f"{DIV}\n"
+                f"🎉 Balance add ho gaya! Bot use kar sakte ho.",
+                reply_markup=main_menu_keyboard(), parse_mode="Markdown"
+            )
+        else:
+            await query.answer("✅ Payment successful! Bot restart karo.", show_alert=True)
+    elif status == "Pending":
+        await query.answer("⏳ Payment abhi pending hai. 1-2 min baad check karo.", show_alert=True)
+    elif status == "Failed":
+        await query.answer("❌ Payment failed. Dobara try karo.", show_alert=True)
+    else:
+        await query.answer(f"Status: {status or 'Unknown'}. Thodi der baad check karo.", show_alert=True)
