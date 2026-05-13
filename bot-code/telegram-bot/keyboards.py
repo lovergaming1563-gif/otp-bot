@@ -456,6 +456,7 @@ def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bo
          InlineKeyboardButton("🔔 Reminder Gap", callback_data="set_health_reminder")],
         [InlineKeyboardButton("🤖 Bot Active Window", callback_data="set_health_window")],
         [InlineKeyboardButton("🔔 Per-Bot Alert Toggle", callback_data="admin_alert_bots")],
+        [InlineKeyboardButton("🗑 Remove Group from Monitoring", callback_data="remove_group_monitoring")],
         [InlineKeyboardButton("━━━ Payment Methods ━━━", callback_data="noop")],
         [InlineKeyboardButton(f"{'🟢' if aloo_enabled else '🔴'} ALOO: {'ON' if aloo_enabled else 'OFF'}", callback_data="toggle_aloo_payment"),
          InlineKeyboardButton(f"{'🟢' if rocket_enabled else '🔴'} Rocket: {'ON' if rocket_enabled else 'OFF'}", callback_data="toggle_rocket_payment")],
