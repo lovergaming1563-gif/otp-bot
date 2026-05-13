@@ -2603,6 +2603,74 @@ async def approve_balance_command(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
+async def remove_group_monitoring_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from database import get_all_group_activity
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    import datetime as _dt
+
+    all_docs = await get_all_group_activity()
+    group_ids = list({d["group_id"] for d in all_docs if d.get("group_id")})
+
+    if not group_ids:
+        await query.edit_message_text(
+            "ℹ️ Koi group monitored nahi hai abhi.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_settings")]]),
+            parse_mode="Markdown"
+        )
+        return
+
+    now = _dt.datetime.utcnow()
+    lines = ["🗑 *Remove Group from Monitoring*", "━━━━━━━━━━━━━━━━━━━━", "", "Kaunsa group hatana hai? Button dabao:"]
+    rows = []
+    for gid in group_ids:
+        group_doc = next((d for d in all_docs if d.get("group_id") == gid and d.get("sender_id") == 0), None)
+        if group_doc and group_doc.get("last_message_at"):
+            mins = int((now - group_doc["last_message_at"]).total_seconds() / 60)
+            if mins < 60:
+                age = f"{mins}m ago"
+            else:
+                age = f"{mins // 60}h ago"
+        else:
+            age = "unknown"
+        rows.append([InlineKeyboardButton(f"❌ {gid} (last: {age})", callback_data=f"del_group_{gid}")])
+    rows.append([InlineKeyboardButton("🔙 Back", callback_data="admin_settings")])
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="Markdown"
+    )
+
+
+async def del_group_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from database import delete_group_activity
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    gid_str = query.data.replace("del_group_", "")
+    try:
+        gid = int(gid_str)
+    except ValueError:
+        await query.edit_message_text("❌ Invalid group ID.")
+        return
+
+    deleted = await delete_group_activity(gid)
+    await query.edit_message_text(
+        f"✅ *Group `{gid}` monitoring se hata diya!*\n\n"
+        f"🗑 `{deleted}` records delete hue.\n\n"
+        f"Ab is group ke alerts nahi aayenge.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Settings", callback_data="admin_settings")]]),
+        parse_mode="Markdown"
+    )
+
+
 async def set_otp_group_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
