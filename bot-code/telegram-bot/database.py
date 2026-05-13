@@ -1475,6 +1475,12 @@ async def get_all_group_activity():
     return await db.group_activity.find({}, sort=[("last_message_at", -1)]).to_list(None)
 
 
+async def delete_group_activity(group_id: int):
+    """Remove all tracking records for a group (stops monitoring it)."""
+    result = await db.group_activity.delete_many({"group_id": int(group_id)})
+    return result.deleted_count
+
+
 async def claim_promo_code(code: str, user_id: int):
     code = code.upper().strip()
     promo = await db.promo_codes.find_one({"code": code})
