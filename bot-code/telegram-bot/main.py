@@ -40,7 +40,7 @@ from handlers.admin_handlers import (
     admin_export_callback, admin_wallet_balances_callback, admin_users_export_callback, admin_restore_balances_callback, handle_restore_backup_file, admin_mode_callback, mode_set_callback,
     admin_manual_callback, manual_number_callback, manual_otp_callback,
     ban_callback, unban_callback, addbal_callback, dedbal_callback,
-    resetbal_callback, handle_admin_text, set_otp_group_callback,
+    resetbal_callback, handle_admin_text, set_otp_group_callback, remove_group_monitoring_callback, del_group_confirm_callback,
     admin_top_spenders_callback, admin_reset_stats_callback,
     admin_reset_stats_confirm_callback,
     approve_balance_command,
@@ -634,6 +634,8 @@ def main():
     app.add_handler(CallbackQueryHandler(dedbal_callback, pattern="^dedbal_"))
     app.add_handler(CallbackQueryHandler(resetbal_callback, pattern="^resetbal_"))
     app.add_handler(CallbackQueryHandler(set_otp_group_callback, pattern="^set_otp_group$"))
+    app.add_handler(CallbackQueryHandler(remove_group_monitoring_callback, pattern="^remove_group_monitoring$"))
+    app.add_handler(CallbackQueryHandler(del_group_confirm_callback, pattern="^del_group_-?\\d+$"))
     app.add_handler(CallbackQueryHandler(toggle_health_callback, pattern="^toggle_health$"))
     app.add_handler(CallbackQueryHandler(set_health_threshold_callback, pattern="^set_health_threshold$"))
     app.add_handler(CallbackQueryHandler(set_health_reminder_callback, pattern="^set_health_reminder$"))
