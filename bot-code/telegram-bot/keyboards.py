@@ -258,15 +258,19 @@ def admin_services_keyboard(services: list, page: int = 0, per_page: int = 10):
         otp_count = s.get("otp_count", 1) or 1
         digits = s.get("otp_digits", [4, 5, 6])
         digits_str = "/".join(str(d) for d in sorted(digits))
+        # Row 1: full-width name button (so full name is visible)
         keyboard.append([
             InlineKeyboardButton(
-                f"{status} {s['name']} ({price_str}, {otp_count}x, {digits_str}d)",
+                f"{status} {s['name']}  ({price_str}, {otp_count}x, {digits_str}d)",
                 callback_data=f"svc_toggle_{sid}"
             ),
-            InlineKeyboardButton("💵", callback_data=f"svc_price_{sid}"),
-            InlineKeyboardButton("🔢", callback_data=f"svc_otpcount_{sid}"),
-            InlineKeyboardButton("📏", callback_data=f"svc_otpdigits_{sid}"),
-            InlineKeyboardButton("🔑", callback_data=f"svc_keywords_{sid}"),
+        ])
+        # Row 2: action buttons
+        keyboard.append([
+            InlineKeyboardButton("💵 Price", callback_data=f"svc_price_{sid}"),
+            InlineKeyboardButton("🔢 Count", callback_data=f"svc_otpcount_{sid}"),
+            InlineKeyboardButton("📏 Digits", callback_data=f"svc_otpdigits_{sid}"),
+            InlineKeyboardButton("🔑 Keys", callback_data=f"svc_keywords_{sid}"),
             InlineKeyboardButton("🗑", callback_data=f"svc_delete_{sid}"),
         ])
     has_prev = page > 0
