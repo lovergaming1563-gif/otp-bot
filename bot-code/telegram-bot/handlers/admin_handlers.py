@@ -2721,16 +2721,10 @@ async def admin_svc_page_callback(update: Update, context: ContextTypes.DEFAULT_
         page = 0
     services = await get_services()
     text = (
-        "🛠 *Services Manager*
-
-"
-        "Yahan se naye OTP services add/remove karo.
-"
-        "✅ = Active (OTP detect hoga) | ❌ = Disabled
-
-"
-        "Service name par tap karo — toggle ho jaayega.
-"
+        "🛠 *Services Manager*\n\n"
+        "Yahan se naye OTP services add/remove karo.\n"
+        "✅ = Active (OTP detect hoga) | ❌ = Disabled\n\n"
+        "Service name par tap karo — toggle ho jaayega.\n"
         "Keywords: service identify karne wale words (comma separated)."
     )
     await query.edit_message_text(text, reply_markup=admin_services_keyboard(services, page=page), parse_mode="Markdown")
