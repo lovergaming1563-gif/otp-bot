@@ -44,7 +44,7 @@ from handlers.admin_handlers import (
     admin_top_spenders_callback, admin_reset_stats_callback,
     admin_reset_stats_confirm_callback,
     approve_balance_command,
-    admin_services_callback, svc_toggle_callback, svc_delete_callback, svc_add_callback,
+    admin_services_callback, admin_svc_page_callback, svc_toggle_callback, svc_delete_callback, svc_add_callback,
     svc_setprice_callback, svc_otpcount_callback, svc_otpdigits_callback,
     apply_digit_suggest_callback,
     svc_keywords_callback, svc_kw_add_callback, svc_kw_del_callback,
@@ -646,6 +646,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_reset_stats_callback, pattern="^admin_reset_stats$"))
     app.add_handler(CallbackQueryHandler(admin_reset_stats_confirm_callback, pattern="^admin_reset_stats_confirm$"))
     app.add_handler(CallbackQueryHandler(admin_services_callback, pattern="^admin_services$"))
+    app.add_handler(CallbackQueryHandler(admin_svc_page_callback, pattern="^admin_svc_page_"))
     app.add_handler(CallbackQueryHandler(svc_toggle_callback, pattern="^svc_toggle_"))
     app.add_handler(CallbackQueryHandler(svc_delete_callback, pattern="^svc_delete_"))
     app.add_handler(CallbackQueryHandler(svc_add_callback, pattern="^svc_add$"))
