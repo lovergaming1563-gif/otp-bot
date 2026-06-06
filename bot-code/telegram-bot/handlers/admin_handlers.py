@@ -2710,6 +2710,32 @@ async def admin_services_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(text, reply_markup=admin_services_keyboard(services), parse_mode="Markdown")
 
 
+async def admin_svc_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    try:
+        page = int(query.data.replace("admin_svc_page_", ""))
+    except ValueError:
+        page = 0
+    services = await get_services()
+    text = (
+        "🛠 *Services Manager*
+
+"
+        "Yahan se naye OTP services add/remove karo.
+"
+        "✅ = Active (OTP detect hoga) | ❌ = Disabled
+
+"
+        "Service name par tap karo — toggle ho jaayega.
+"
+        "Keywords: service identify karne wale words (comma separated)."
+    )
+    await query.edit_message_text(text, reply_markup=admin_services_keyboard(services, page=page), parse_mode="Markdown")
+
+
 async def svc_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
