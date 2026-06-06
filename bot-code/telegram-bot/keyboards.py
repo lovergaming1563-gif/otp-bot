@@ -244,9 +244,13 @@ def admin_promo_actions_keyboard(code: str, active: bool):
     return InlineKeyboardMarkup(keyboard)
 
 
-def admin_services_keyboard(services: list):
+def admin_services_keyboard(services: list, page: int = 0, per_page: int = 10):
     keyboard = []
-    for s in services:
+    total = len(services)
+    start = page * per_page
+    end = start + per_page
+    page_services = services[start:end]
+    for s in page_services:
         sid = str(s["_id"])
         status = "✅" if s.get("active") else "❌"
         price = s.get("price")
@@ -265,6 +269,17 @@ def admin_services_keyboard(services: list):
             InlineKeyboardButton("🔑", callback_data=f"svc_keywords_{sid}"),
             InlineKeyboardButton("🗑", callback_data=f"svc_delete_{sid}"),
         ])
+    has_prev = page > 0
+    has_next = end < total
+    if has_prev or has_next:
+        total_pages = (total + per_page - 1) // per_page
+        nav = []
+        if has_prev:
+            nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"admin_svc_page_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
+        if has_next:
+            nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"admin_svc_page_{page + 1}"))
+        keyboard.append(nav)
     keyboard.append([InlineKeyboardButton("➕ Add Service", callback_data="svc_add")])
     keyboard.append([InlineKeyboardButton("🗑 Bulk Delete Services", callback_data="svc_bulk_del_start")])
     keyboard.append([
