@@ -61,13 +61,15 @@ async def init_db():
 
     try:
         await db.users.create_index("user_id", unique=True)
-        # Drop old single-field unique index if it exists (service-agnostic)
-        try:
-            await db.stock.drop_index("number_1")
-        except Exception:
-            pass
-        # Compound unique: same number CAN exist in different services
-        await db.stock.create_index([("number", 1), ("service", 1)], unique=True)
+        # Drop old indexes to apply new compound unique constraint
+        for _idx in ["number_1", "number_1_service_1"]:
+            try:
+                await db.stock.drop_index(_idx)
+            except Exception:
+                pass
+        # Compound unique: same number+device_id+service combo only once
+        # Same number with different device_id in same service IS allowed
+        await db.stock.create_index([("number", 1), ("device_id", 1), ("service", 1)], unique=True)
         await db.sessions.create_index("user_id")
         await db.sessions.create_index("device_id")
         await db.deposits.create_index("user_id")
