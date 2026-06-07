@@ -1793,7 +1793,11 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await add_stock(number, device_id, service)
                 added.append(f"`{number}`")
             except Exception as e:
-                skipped.append(f"`{number}` — {str(e)[:40]}")
+                err = str(e)
+                if "E11000" in err or "duplicate key" in err.lower():
+                    skipped.append(f"`{number}` — already in stock")
+                else:
+                    skipped.append(f"`{number}` — {err[:40]}")
 
         context.user_data.pop("admin_action", None)
         msg = f"📦 *{service} Stock Update*\n\n✅ Added {len(added)}: {', '.join(added) if added else 'none'}\n"
@@ -4039,8 +4043,12 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     await add_stock(number, device_id, svc)
                     per_svc_added[svc] += 1
-                except Exception:
-                    per_svc_failed[svc] += 1
+                except Exception as _e:
+                    _es = str(_e)
+                    if "E11000" in _es or "duplicate key" in _es.lower():
+                        pass  # already in stock — skip silently
+                    else:
+                        per_svc_failed[svc] += 1
         context.user_data.pop("admin_action", None)
         context.user_data["bulk_add_selected"] = set()
         total_ok = sum(per_svc_added.values())
