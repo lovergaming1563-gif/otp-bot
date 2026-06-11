@@ -19,6 +19,7 @@ from database import (
     get_recent_otp_sessions,
     get_sold_otp_summary, get_sold_numbers_by_service,
     remove_stock_by_device_ids, remove_stock_by_numbers,
+    clear_sold_otp_logs, get_sold_numbers_from_logs,
 )
 from keyboards import (
     admin_main_keyboard, admin_stock_keyboard, admin_stock_manage_keyboard,
@@ -26,6 +27,7 @@ from keyboards import (
     admin_mode_keyboard, admin_manual_keyboard, user_actions_keyboard, back_keyboard,
     main_menu_keyboard, stock_clear_confirm_keyboard, reset_stats_confirm_keyboard,
     smart_remove_service_keyboard, sold_otp_list_keyboard,
+    sold_svc_action_keyboard, sold_clear_confirm_keyboard,
     admin_services_keyboard, bulk_select_keyboard, bulk_final_confirm_keyboard,
     svc_add_extracted_keyboard
 )
@@ -1710,21 +1712,120 @@ async def sold_svc_detail_callback(update, context):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Back to Sold List", callback_data="admin_sold_otp")],
     ])
-    if not pairs:
+    summary = await get_sold_otp_summary()
+    svc_count = next((s["count"] for s in summary if s["service"] == service), 0)
+    log_pairs = await get_sold_numbers_from_logs(service)
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    action_kb = sold_svc_action_keyboard(service)
+    if not log_pairs:
         await query.edit_message_text(
-            f"📊 *{service} — Sold Numbers*\n\nKoi in_use number nahi mila.",
-            reply_markup=kb, parse_mode="Markdown"
+            f"📊 *{service} — Sold Numbers*\n\n"
+            f"Total sold: *{svc_count}*\n\n"
+            f"(Numbers wale records nahi mile — purane orders mein number store nahi tha)",
+            reply_markup=action_kb, parse_mode="Markdown"
         )
         return
-    lines = [f"`{num} | {did}`" for num, did in pairs]
-    header = f"📊 *{service} — {len(pairs)} in use*\n\n"
-    max_chars = 3800
+    lines = [f"`{num} | {did}`" if did else f"`{num}`" for num, did in log_pairs]
+    header = f"📊 *{service}*  •  *{svc_count} sold*  •  *{len(log_pairs)} numbers*\n\n"
     body = "\n".join(lines)
-    if len(body) > max_chars:
-        body = body[:max_chars] + "\n_...aur bhi hain_"
+    if len(body) > 3500:
+        body = body[:3500] + "\n_...aur bhi hain — Export TXT karo sab ke liye_"
     await query.edit_message_text(
         header + body,
-        reply_markup=kb, parse_mode="Markdown"
+        reply_markup=action_kb, parse_mode="Markdown"
+    )
+
+
+
+async def sold_svc_export_callback(update, context):
+    """Send sold numbers for a service as a .txt file."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    service = query.data.replace("sold_export_", "")
+    await query.answer("⏳ File bana raha hai...")
+    pairs = await get_sold_numbers_from_logs(service)
+    if not pairs:
+        await query.answer("❌ Koi number nahi mila!", show_alert=True)
+        return
+    lines = [f"{num} | {did}" if did else num for num, did in pairs]
+    txt_bytes = "\n".join(lines).encode("utf-8")
+    import io
+    buf = io.BytesIO(txt_bytes)
+    safe_name = service.replace(" ", "_").lower()
+    buf.name = f"sold_{safe_name}.txt"
+    await context.bot.send_document(
+        chat_id=query.from_user.id,
+        document=buf,
+        filename=f"sold_{safe_name}.txt",
+        caption=f"📥 *{service}* — {len(pairs)} sold numbers\n`number | device_id` format",
+        parse_mode="Markdown"
+    )
+
+
+async def sold_clear_all_confirm_callback(update, context):
+    """Ask confirmation before clearing ALL sold OTP history."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    await query.edit_message_text(
+        "🗑 *Clear All Sold History*\n\n"
+        "⚠️ Ye action SARE otp_delivered logs delete kar dega.\n"
+        "Sold list ekdum empty ho jayegi.\n\n"
+        "Confirm karo?",
+        reply_markup=sold_clear_confirm_keyboard(service=None),
+        parse_mode="Markdown"
+    )
+
+
+async def sold_clear_all_do_callback(update, context):
+    """Actually clear ALL sold OTP logs."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    count = await clear_sold_otp_logs(service=None)
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")]])
+    await query.edit_message_text(
+        f"✅ *Done!*\n\n🗑 *{count}* sold OTP records delete ho gaye.\nSold list ab clean hai.",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def sold_clear_svc_confirm_callback(update, context):
+    """Ask confirmation before clearing one service's sold history."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    service = query.data.replace("sold_clear_svc_confirm_", "")
+    await query.edit_message_text(
+        f"🗑 *Clear — {service}*\n\n"
+        f"Sirf *{service}* ke sold OTP records delete honge.\n\n"
+        "Confirm karo?",
+        reply_markup=sold_clear_confirm_keyboard(service=service),
+        parse_mode="Markdown"
+    )
+
+
+async def sold_clear_svc_do_callback(update, context):
+    """Actually clear one service's sold OTP logs."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    service = query.data.replace("sold_clear_svc_do_", "")
+    count = await clear_sold_otp_logs(service=service)
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Sold List", callback_data="admin_sold_otp")]])
+    await query.edit_message_text(
+        f"✅ *Done!*\n\n🗑 *{service}* ke *{count}* sold records delete ho gaye.",
+        reply_markup=kb,
+        parse_mode="Markdown"
     )
 
 async def admin_users_export_callback(update, context):
