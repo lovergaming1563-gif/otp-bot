@@ -16,13 +16,16 @@ from database import (
     get_refund_request, approve_refund_request, reject_refund_request,
     get_upi_id, set_upi_id, get_min_deposit, set_min_deposit, get_deposit_stats,
     add_user_note, get_user_notes, delete_user_note,
-    get_recent_otp_sessions
+    get_recent_otp_sessions,
+    get_sold_otp_summary, get_sold_numbers_by_service,
+    remove_stock_by_device_ids, remove_stock_by_numbers,
 )
 from keyboards import (
     admin_main_keyboard, admin_stock_keyboard, admin_stock_manage_keyboard,
     admin_deposit_approve_keyboard, admin_logs_keyboard, admin_settings_keyboard,
     admin_mode_keyboard, admin_manual_keyboard, user_actions_keyboard, back_keyboard,
     main_menu_keyboard, stock_clear_confirm_keyboard, reset_stats_confirm_keyboard,
+    smart_remove_service_keyboard, sold_otp_list_keyboard,
     admin_services_keyboard, bulk_select_keyboard, bulk_final_confirm_keyboard,
     svc_add_extracted_keyboard
 )
@@ -157,9 +160,10 @@ async def stock_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data=f"stock_svc_{service}")]])
     await query.edit_message_text(
         f"📦 *Add Numbers — {service}*\n\n"
-        f"Ek ya zyaada numbers send karo:\n`number | device_id`\n\n"
+        f"Numbers bhejo ya *.txt* file upload karo:\n`number | device_id`\n\n"
         f"Example:\n`+919876543210 | f95190e4fbd9e50a`\n`+918888888888 | 7dc588c24bd5db02`\n\n"
-        f"Device ID: SMS Forwarder app se lo.",
+        f"Device ID: SMS Forwarder app se lo.\n\n"
+        f"📎 *TXT file bhi chalega!* (Ek line = ek number)",
         reply_markup=kb,
         parse_mode="Markdown"
     )
@@ -1454,6 +1458,274 @@ async def handle_restore_backup_file(update, context):
         parse_mode="Markdown"
     )
 
+
+
+
+async def handle_stock_txt_file(update, context):
+    """Handle .txt file upload for stock add."""
+    if not is_admin(update.effective_user.id):
+        return
+    if context.user_data.get("admin_action") != "add_stock":
+        return
+    service = context.user_data.get("stock_service")
+    if not service:
+        return
+    import io
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".txt"):
+        return
+    wait = await update.message.reply_text("⏳ *File process ho rahi hai...*", parse_mode="Markdown")
+    try:
+        file = await context.bot.get_file(doc.file_id)
+        buf = io.BytesIO()
+        await file.download_to_memory(buf)
+        buf.seek(0)
+        raw = buf.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        await wait.edit_text(f"❌ File read error: `{str(e)[:200]}`", parse_mode="Markdown")
+        return
+    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    if not lines:
+        await wait.edit_text("❌ File empty hai ya invalid format.", parse_mode="Markdown")
+        return
+    added, dupes, errors = 0, 0, 0
+    for line in lines:
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            errors += 1
+            continue
+        number, device_id = parts[0], parts[1]
+        try:
+            result = await add_stock(number, device_id, service)
+            if result == "duplicate":
+                dupes += 1
+            else:
+                added += 1
+        except Exception:
+            errors += 1
+    context.user_data.pop("admin_action", None)
+    context.user_data.pop("stock_service", None)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data=f"stock_svc_{service}")]])
+    await wait.edit_text(
+        f"📦 *Stock Add Done — {service}*\n\n"
+        f"✅ Added: *{added}*\n"
+        f"⚠️ Already in stock: *{dupes}*\n"
+        f"❌ Invalid lines: *{errors}*\n"
+        f"📄 Total lines: *{len(lines)}*",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def smart_remove_callback(update, context):
+    """Smart Remove entry — choose by Device ID or Phone Number."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 By Device ID",    callback_data="smart_remove_type_device")],
+        [InlineKeyboardButton("📞 By Phone Number", callback_data="smart_remove_type_number")],
+        [InlineKeyboardButton("🔙 Back to Stock",   callback_data="admin_stock")],
+    ])
+    await query.edit_message_text(
+        "🗑 *Smart Remove*\n\nKis cheez ke basis pe remove karna hai?",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def smart_remove_type_callback(update, context):
+    """After choosing device/number, show multi-select service keyboard."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    remove_type = query.data.replace("smart_remove_type_", "")
+    context.user_data["smart_remove_type"] = remove_type
+    context.user_data["smart_remove_selected"] = set()
+    services = await get_services()
+    type_label = "Device ID" if remove_type == "device" else "Phone Number"
+    await query.edit_message_text(
+        f"🗑 *Smart Remove — By {type_label}*\n\nService(s) select karo jis se remove karna hai:",
+        reply_markup=smart_remove_service_keyboard(services, set(), remove_type),
+        parse_mode="Markdown"
+    )
+
+
+async def smart_remove_svc_toggle_callback(update, context):
+    """Toggle service selection."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    svc_name = query.data.replace("sr_svc_tog_", "")
+    selected = context.user_data.get("smart_remove_selected", set())
+    if svc_name in selected:
+        selected.discard(svc_name)
+    else:
+        selected.add(svc_name)
+    context.user_data["smart_remove_selected"] = selected
+    services = await get_services()
+    remove_type = context.user_data.get("smart_remove_type", "device")
+    await query.edit_message_reply_markup(
+        reply_markup=smart_remove_service_keyboard(services, selected, remove_type)
+    )
+
+
+async def smart_remove_svc_all_callback(update, context):
+    """Select all services."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    services = await get_services()
+    selected = {s["name"] for s in services}
+    context.user_data["smart_remove_selected"] = selected
+    remove_type = context.user_data.get("smart_remove_type", "device")
+    await query.edit_message_reply_markup(
+        reply_markup=smart_remove_service_keyboard(services, selected, remove_type)
+    )
+
+
+async def smart_remove_svc_none_callback(update, context):
+    """Deselect all services."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    context.user_data["smart_remove_selected"] = set()
+    services = await get_services()
+    remove_type = context.user_data.get("smart_remove_type", "device")
+    await query.edit_message_reply_markup(
+        reply_markup=smart_remove_service_keyboard(services, set(), remove_type)
+    )
+
+
+async def smart_remove_svc_confirm_callback(update, context):
+    """Services selected — ask admin for IDs/numbers input."""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+    selected = context.user_data.get("smart_remove_selected", set())
+    if not selected:
+        await query.answer("⚠️ Kam se kam ek service select karo!", show_alert=True)
+        return
+    await query.answer()
+    remove_type = context.user_data.get("smart_remove_type", "device")
+    type_label = "Device IDs" if remove_type == "device" else "Phone Numbers"
+    context.user_data["admin_action"] = f"smart_remove_{remove_type}"
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_stock")]])
+    svc_list = ", ".join(selected)
+    await query.edit_message_text(
+        f"🗑 *Smart Remove — {type_label}*\n\n"
+        f"Services: *{svc_list}*\n\n"
+        f"Ab {type_label} bhejo (ek line = ek entry)\nYa *.txt* file upload karo:\n\n"
+        f"Example:\n`abc123def456`\n`xyz789ghi012`",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def handle_smart_remove_txt_file(update, context):
+    """Handle .txt file upload for smart remove."""
+    if not is_admin(update.effective_user.id):
+        return
+    action = context.user_data.get("admin_action", "")
+    if not action.startswith("smart_remove_"):
+        return
+    import io
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".txt"):
+        return
+    wait = await update.message.reply_text("⏳ *Processing...*", parse_mode="Markdown")
+    try:
+        file = await context.bot.get_file(doc.file_id)
+        buf = io.BytesIO()
+        await file.download_to_memory(buf)
+        buf.seek(0)
+        raw = buf.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        await wait.edit_text(f"❌ File read error: `{str(e)[:200]}`", parse_mode="Markdown")
+        return
+    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    selected = list(context.user_data.get("smart_remove_selected", []))
+    remove_type = "device" if action == "smart_remove_device" else "number"
+    if remove_type == "device":
+        count = await remove_stock_by_device_ids(lines, selected)
+    else:
+        count = await remove_stock_by_numbers(lines, selected)
+    context.user_data.pop("admin_action", None)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")]])
+    type_label = "Device IDs" if remove_type == "device" else "Phone Numbers"
+    await wait.edit_text(
+        f"🗑 *Smart Remove Done*\n\n"
+        f"✅ Removed: *{count}* entries\n"
+        f"Type: *{type_label}*\n"
+        f"Services: *{', '.join(selected)}*",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def admin_sold_otp_callback(update, context):
+    """Show service-wise sold OTP counts."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    summary = await get_sold_otp_summary()
+    if not summary:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_stock")]])
+        await query.edit_message_text(
+            "📊 *Sold OTP List*\n\nAbhi tak koi OTP deliver nahi hua.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+    total = sum(item["count"] for item in summary)
+    await query.edit_message_text(
+        f"📊 *Sold OTP List*\n\n"
+        f"Total sold: *{total}* OTPs\n\n"
+        f"Service pe tap karo numbers dekhne ke liye 👇",
+        reply_markup=sold_otp_list_keyboard(summary),
+        parse_mode="Markdown"
+    )
+
+
+async def sold_svc_detail_callback(update, context):
+    """Show sold numbers for a specific service."""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    service = query.data.replace("sold_svc_", "")
+    pairs = await get_sold_numbers_by_service(service)
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Back to Sold List", callback_data="admin_sold_otp")],
+    ])
+    if not pairs:
+        await query.edit_message_text(
+            f"📊 *{service} — Sold Numbers*\n\nKoi in_use number nahi mila.",
+            reply_markup=kb, parse_mode="Markdown"
+        )
+        return
+    lines = [f"`{num} | {did}`" for num, did in pairs]
+    header = f"📊 *{service} — {len(pairs)} in use*\n\n"
+    max_chars = 3800
+    body = "\n".join(lines)
+    if len(body) > max_chars:
+        body = body[:max_chars] + "\n_...aur bhi hain_"
+    await query.edit_message_text(
+        header + body,
+        reply_markup=kb, parse_mode="Markdown"
+    )
 
 async def admin_users_export_callback(update, context):
     query = update.callback_query
@@ -3894,6 +4166,36 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     action = context.user_data.get("admin_action")
     text = update.message.text.strip() if update.message and update.message.text else ""
+
+    # ---- Smart Remove by Device ID or Phone Number ----
+    if action in ("smart_remove_device", "smart_remove_number"):
+        selected = list(context.user_data.get("smart_remove_selected", []))
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        if not lines:
+            await update.message.reply_text("❌ Kuch input nahi mila. Dobara try karo.", parse_mode="Markdown")
+            return
+        if not selected:
+            await update.message.reply_text("❌ Service selection lost. Phir se Smart Remove kholo.", parse_mode="Markdown")
+            context.user_data.pop("admin_action", None)
+            return
+        remove_type = "device" if action == "smart_remove_device" else "number"
+        if remove_type == "device":
+            count = await remove_stock_by_device_ids(lines, selected)
+        else:
+            count = await remove_stock_by_numbers(lines, selected)
+        context.user_data.pop("admin_action", None)
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")]])
+        type_label = "Device IDs" if remove_type == "device" else "Phone Numbers"
+        await update.message.reply_text(
+            f"🗑 *Smart Remove Done*\n\n"
+            f"✅ Removed: *{count}* entries\n"
+            f"Type: *{type_label}*\n"
+            f"Services: *{', '.join(selected)}*",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
 
     # ---- Bulk set price: same price across many services ----
     if action == "bulk_set_price":
