@@ -1780,3 +1780,22 @@ async def remove_stock_by_numbers(numbers: list, services: list) -> int:
     _cache_bump("stock")
     return result.deleted_count
 
+
+async def clear_sold_otp_logs(service: str = None) -> int:
+    """Delete otp_delivered logs. If service given, only that service."""
+    if service:
+        result = await db.logs.delete_many({"type": "otp_delivered", "service": service})
+    else:
+        result = await db.logs.delete_many({"type": "otp_delivered"})
+    return result.deleted_count
+
+
+async def get_sold_numbers_from_logs(service: str) -> list:
+    """Return (number, device_id) from otp_delivered logs for TXT export."""
+    docs = await db.logs.find(
+        {"type": "otp_delivered", "service": service,
+         "number": {"$exists": True, "$ne": None}},
+        {"number": 1, "device_id": 1}
+    ).sort("created_at", -1).to_list(None)
+    return [(d.get("number", ""), d.get("device_id", "")) for d in docs]
+
