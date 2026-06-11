@@ -1731,3 +1731,52 @@ async def get_recent_otp_sessions(limit: int = 50):
         {},
         sort=[("created_at", -1)]
     ).limit(limit).to_list(None)
+
+
+async def get_sold_otp_summary() -> list:
+    """Service-wise sold (delivered) OTP count, sorted by count desc."""
+    pipeline = [
+        {"$match": {"type": "otp_delivered", "service": {"$exists": True, "$ne": None}}},
+        {"$group": {"_id": "$service", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    result = await db.logs.aggregate(pipeline).to_list(None)
+    return [{"service": r["_id"], "count": r["count"]} for r in result]
+
+
+async def get_sold_numbers_by_service(service: str) -> list:
+    """Returns (number, device_id) tuples for in_use stock entries of a service."""
+    docs = await db.stock.find(
+        {"service": service, "status": "in_use"},
+        {"number": 1, "device_id": 1}
+    ).sort("added_at", -1).to_list(None)
+    return [(d.get("number", ""), d.get("device_id", "")) for d in docs]
+
+
+async def remove_stock_by_device_ids(device_ids: list, services: list) -> int:
+    """Remove available stock entries matching device_ids in given services."""
+    norm = [did.strip().lower() for did in device_ids if did.strip()]
+    if not norm or not services:
+        return 0
+    result = await db.stock.delete_many({
+        "device_id": {"$in": norm},
+        "service": {"$in": list(services)},
+        "status": "available",
+    })
+    _cache_bump("stock")
+    return result.deleted_count
+
+
+async def remove_stock_by_numbers(numbers: list, services: list) -> int:
+    """Remove available stock entries matching numbers in given services."""
+    norm = [n.strip() for n in numbers if n.strip()]
+    if not norm or not services:
+        return 0
+    result = await db.stock.delete_many({
+        "number": {"$in": norm},
+        "service": {"$in": list(services)},
+        "status": "available",
+    })
+    _cache_bump("stock")
+    return result.deleted_count
+
