@@ -18,6 +18,7 @@ from handlers.user_handlers import (
     deposit_upi_callback,
     i_paid_handler, i_paid_retry_handler,
     pay_aloo_callback, pay_rocket_callback, rocket_paid_handler,
+    service_request_callback,
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
@@ -71,6 +72,11 @@ from handlers.admin_handlers import (
     admin_recent_otps_callback,
     diag_command,
     toggle_aloo_payment_callback, toggle_rocket_payment_callback,
+    smart_remove_callback, smart_remove_type_callback,
+    smart_remove_svc_toggle_callback, smart_remove_svc_all_callback,
+    smart_remove_svc_none_callback, smart_remove_svc_confirm_callback,
+    handle_stock_txt_file, handle_smart_remove_txt_file,
+    admin_sold_otp_callback, sold_svc_detail_callback,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -505,7 +511,7 @@ async def post_init(application: Application):
     job_queue = application.job_queue
     job_queue.run_daily(
         send_daily_report,
-        time=_dt.time(hour=3, minute=30, second=0),
+        time=_dt.time(hour=18, minute=29, second=0),
         name="daily_report"
     )
     if job_queue is None:
@@ -623,6 +629,8 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_users_export_callback, pattern="^admin_users_export$"))
     app.add_handler(CallbackQueryHandler(admin_restore_balances_callback, pattern="^admin_restore_balances$"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("json") & filters.ChatType.PRIVATE, handle_restore_backup_file))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("txt") & filters.ChatType.PRIVATE, handle_stock_txt_file))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("txt") & filters.ChatType.PRIVATE, handle_smart_remove_txt_file))
     app.add_handler(CallbackQueryHandler(admin_mode_callback, pattern="^admin_mode$"))
     app.add_handler(CallbackQueryHandler(mode_set_callback, pattern="^mode_"))
     app.add_handler(CallbackQueryHandler(admin_manual_callback, pattern="^admin_manual$"))
@@ -647,6 +655,15 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_reset_stats_confirm_callback, pattern="^admin_reset_stats_confirm$"))
     app.add_handler(CallbackQueryHandler(admin_services_callback, pattern="^admin_services$"))
     app.add_handler(CallbackQueryHandler(admin_svc_page_callback, pattern="^admin_svc_page_"))
+    app.add_handler(CallbackQueryHandler(smart_remove_callback, pattern="^smart_remove$"))
+    app.add_handler(CallbackQueryHandler(smart_remove_type_callback, pattern="^smart_remove_type_"))
+    app.add_handler(CallbackQueryHandler(smart_remove_svc_toggle_callback, pattern="^sr_svc_tog_"))
+    app.add_handler(CallbackQueryHandler(smart_remove_svc_all_callback, pattern="^sr_svc_all$"))
+    app.add_handler(CallbackQueryHandler(smart_remove_svc_none_callback, pattern="^sr_svc_none$"))
+    app.add_handler(CallbackQueryHandler(smart_remove_svc_confirm_callback, pattern="^sr_svc_confirm$"))
+    app.add_handler(CallbackQueryHandler(admin_sold_otp_callback, pattern="^admin_sold_otp$"))
+    app.add_handler(CallbackQueryHandler(sold_svc_detail_callback, pattern="^sold_svc_"))
+    app.add_handler(CallbackQueryHandler(service_request_callback, pattern="^service_request$"))
     app.add_handler(CallbackQueryHandler(svc_toggle_callback, pattern="^svc_toggle_"))
     app.add_handler(CallbackQueryHandler(svc_delete_callback, pattern="^svc_delete_"))
     app.add_handler(CallbackQueryHandler(svc_add_callback, pattern="^svc_add$"))
