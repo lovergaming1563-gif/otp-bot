@@ -77,6 +77,9 @@ from handlers.admin_handlers import (
     smart_remove_svc_none_callback, smart_remove_svc_confirm_callback,
     handle_stock_txt_file, handle_smart_remove_txt_file,
     admin_sold_otp_callback, sold_svc_detail_callback,
+    sold_svc_export_callback,
+    sold_clear_all_confirm_callback, sold_clear_all_do_callback,
+    sold_clear_svc_confirm_callback, sold_clear_svc_do_callback,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -663,6 +666,11 @@ def main():
     app.add_handler(CallbackQueryHandler(smart_remove_svc_confirm_callback, pattern="^sr_svc_confirm$"))
     app.add_handler(CallbackQueryHandler(admin_sold_otp_callback, pattern="^admin_sold_otp$"))
     app.add_handler(CallbackQueryHandler(sold_svc_detail_callback, pattern="^sold_svc_"))
+    app.add_handler(CallbackQueryHandler(sold_svc_export_callback, pattern="^sold_export_"))
+    app.add_handler(CallbackQueryHandler(sold_clear_all_confirm_callback, pattern="^sold_clear_all_confirm$"))
+    app.add_handler(CallbackQueryHandler(sold_clear_all_do_callback, pattern="^sold_clear_all_do$"))
+    app.add_handler(CallbackQueryHandler(sold_clear_svc_confirm_callback, pattern="^sold_clear_svc_confirm_"))
+    app.add_handler(CallbackQueryHandler(sold_clear_svc_do_callback, pattern="^sold_clear_svc_do_"))
     app.add_handler(CallbackQueryHandler(service_request_callback, pattern="^service_request$"))
     app.add_handler(CallbackQueryHandler(svc_toggle_callback, pattern="^svc_toggle_"))
     app.add_handler(CallbackQueryHandler(svc_delete_callback, pattern="^svc_delete_"))
