@@ -571,6 +571,32 @@ def sold_otp_list_keyboard(summary: list):
             f"🟢 {svc}  •  {cnt} sold",
             callback_data=f"sold_svc_{svc}"
         )])
+    rows.append([InlineKeyboardButton("🗑 Clear All History", callback_data="sold_clear_all_confirm")])
     rows.append([InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")])
     return InlineKeyboardMarkup(rows)
+
+
+def sold_svc_action_keyboard(service: str):
+    """Action buttons shown inside a service sold detail page."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📥 Export TXT", callback_data=f"sold_export_{service}"),
+            InlineKeyboardButton("🗑 Clear This",  callback_data=f"sold_clear_svc_confirm_{service}"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Sold List", callback_data="admin_sold_otp")],
+    ])
+
+
+def sold_clear_confirm_keyboard(service: str = None):
+    """Confirm/cancel for clearing sold OTP logs."""
+    if service:
+        yes_cb = f"sold_clear_svc_do_{service}"
+        label  = f"✅ Haan, '{service}' ka clear karo"
+    else:
+        yes_cb = "sold_clear_all_do"
+        label  = "✅ Haan, SABA clear karo"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label,        callback_data=yes_cb)],
+        [InlineKeyboardButton("❌ Cancel",  callback_data="admin_sold_otp")],
+    ])
 
