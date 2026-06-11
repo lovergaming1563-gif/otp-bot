@@ -1464,19 +1464,23 @@ async def handle_restore_backup_file(update, context):
 
 
 async def handle_stock_txt_file(update, context):
-    """Handle .txt file upload for stock add."""
+    """Stub kept for import compatibility — real logic in handle_admin_txt_file."""
+    pass
+
+
+async def handle_admin_txt_file(update, context):
+    """Single handler for ALL .txt file uploads — dispatches by admin_action."""
     if not is_admin(update.effective_user.id):
         return
-    if context.user_data.get("admin_action") != "add_stock":
+    action = context.user_data.get("admin_action", "")
+    doc = update.message.document
+    if not doc or not doc.file_name.lower().endswith(".txt"):
         return
-    service = context.user_data.get("stock_service")
-    if not service:
-        return
+
     import io
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".txt"):
-        return
+
+    # Read the file once
     wait = await update.message.reply_text("⏳ *File process ho rahi hai...*", parse_mode="Markdown")
     try:
         file = await context.bot.get_file(doc.file_id)
@@ -1487,37 +1491,70 @@ async def handle_stock_txt_file(update, context):
     except Exception as e:
         await wait.edit_text(f"❌ File read error: `{str(e)[:200]}`", parse_mode="Markdown")
         return
+
     lines = [l.strip() for l in raw.splitlines() if l.strip()]
     if not lines:
         await wait.edit_text("❌ File empty hai ya invalid format.", parse_mode="Markdown")
         return
-    added, dupes, errors = 0, 0, 0
-    for line in lines:
-        parts = [p.strip() for p in line.split("|")]
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            errors += 1
-            continue
-        number, device_id = parts[0], parts[1]
-        try:
-            result = await add_stock(number, device_id, service)
-            if result == "duplicate":
-                dupes += 1
-            else:
-                added += 1
-        except Exception:
-            errors += 1
-    context.user_data.pop("admin_action", None)
-    context.user_data.pop("stock_service", None)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data=f"stock_svc_{service}")]])
-    await wait.edit_text(
-        f"📦 *Stock Add Done — {service}*\n\n"
-        f"✅ Added: *{added}*\n"
-        f"⚠️ Already in stock: *{dupes}*\n"
-        f"❌ Invalid lines: *{errors}*\n"
-        f"📄 Total lines: *{len(lines)}*",
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+
+    # ── Stock Add ──────────────────────────────────────────────
+    if action == "add_stock":
+        service = context.user_data.get("stock_service")
+        if not service:
+            await wait.edit_text("❌ Service select nahi ki. Phir se try karo.", parse_mode="Markdown")
+            return
+        added, dupes, errors = 0, 0, 0
+        for line in lines:
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                errors += 1
+                continue
+            number, device_id = parts[0], parts[1]
+            try:
+                result = await add_stock(number, device_id, service)
+                if result == "duplicate":
+                    dupes += 1
+                else:
+                    added += 1
+            except Exception:
+                errors += 1
+        context.user_data.pop("admin_action", None)
+        context.user_data.pop("stock_service", None)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data=f"stock_svc_{service}")]])
+        await wait.edit_text(
+            f"📦 *Stock Add Done — {service}*\n\n"
+            f"✅ Added: *{added}*\n"
+            f"⚠️ Already in stock: *{dupes}*\n"
+            f"❌ Invalid lines: *{errors}*\n"
+            f"📄 Total lines: *{len(lines)}*",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    # ── Smart Remove ───────────────────────────────────────────
+    if action in ("smart_remove_device", "smart_remove_number"):
+        selected = list(context.user_data.get("smart_remove_selected", []))
+        remove_type = "device" if action == "smart_remove_device" else "number"
+        if remove_type == "device":
+            count = await remove_stock_by_device_ids(lines, selected)
+        else:
+            count = await remove_stock_by_numbers(lines, selected)
+        context.user_data.pop("admin_action", None)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")]])
+        type_label = "Device IDs" if remove_type == "device" else "Phone Numbers"
+        await wait.edit_text(
+            f"🗑 *Smart Remove Done*\n\n"
+            f"✅ Removed: *{count}* entries\n"
+            f"Type: *{type_label}*\n"
+            f"Services: *{', '.join(selected)}*",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Unknown action — ignore silently
+    await wait.delete()
 
 
 async def smart_remove_callback(update, context):
@@ -1633,45 +1670,8 @@ async def smart_remove_svc_confirm_callback(update, context):
 
 
 async def handle_smart_remove_txt_file(update, context):
-    """Handle .txt file upload for smart remove."""
-    if not is_admin(update.effective_user.id):
-        return
-    action = context.user_data.get("admin_action", "")
-    if not action.startswith("smart_remove_"):
-        return
-    import io
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".txt"):
-        return
-    wait = await update.message.reply_text("⏳ *Processing...*", parse_mode="Markdown")
-    try:
-        file = await context.bot.get_file(doc.file_id)
-        buf = io.BytesIO()
-        await file.download_to_memory(buf)
-        buf.seek(0)
-        raw = buf.read().decode("utf-8", errors="ignore")
-    except Exception as e:
-        await wait.edit_text(f"❌ File read error: `{str(e)[:200]}`", parse_mode="Markdown")
-        return
-    lines = [l.strip() for l in raw.splitlines() if l.strip()]
-    selected = list(context.user_data.get("smart_remove_selected", []))
-    remove_type = "device" if action == "smart_remove_device" else "number"
-    if remove_type == "device":
-        count = await remove_stock_by_device_ids(lines, selected)
-    else:
-        count = await remove_stock_by_numbers(lines, selected)
-    context.user_data.pop("admin_action", None)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")]])
-    type_label = "Device IDs" if remove_type == "device" else "Phone Numbers"
-    await wait.edit_text(
-        f"🗑 *Smart Remove Done*\n\n"
-        f"✅ Removed: *{count}* entries\n"
-        f"Type: *{type_label}*\n"
-        f"Services: *{', '.join(selected)}*",
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    """Stub kept for import compatibility — real logic in handle_admin_txt_file."""
+    pass
 
 
 async def admin_sold_otp_callback(update, context):
