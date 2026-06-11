@@ -11,6 +11,7 @@ def main_menu_keyboard():
          InlineKeyboardButton("📋  History",   callback_data="history")],
         [InlineKeyboardButton("🎟  Redeem Promo Code", callback_data="redeem_promo")],
         [InlineKeyboardButton("🔄  Refund Request", callback_data="refund")],
+        [InlineKeyboardButton("🔧  Service Request", callback_data="service_request")],
         [InlineKeyboardButton("💬  Support",   callback_data="support")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -381,6 +382,10 @@ def admin_stock_keyboard(services: list = None, summary: dict = None):
         InlineKeyboardButton("🧹 Bulk Clear (Multi)", callback_data="bulk_clear_start"),
     ])
     keyboard.append([InlineKeyboardButton("🧹 Clear All Stock", callback_data="stock_clear_all")])
+    keyboard.append([
+        InlineKeyboardButton("🗑 Smart Remove", callback_data="smart_remove"),
+        InlineKeyboardButton("📊 Sold OTPs", callback_data="admin_sold_otp"),
+    ])
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="admin_back")])
     return InlineKeyboardMarkup(keyboard)
 
@@ -537,3 +542,35 @@ def user_actions_keyboard(user_id: int, banned: bool):
         [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def smart_remove_service_keyboard(services: list, selected: set, remove_type: str):
+    """Multi-select keyboard for services in Smart Remove."""
+    rows = []
+    for s in services:
+        name = s["name"]
+        check = "☑" if name in selected else "☐"
+        rows.append([InlineKeyboardButton(f"{check} {name}", callback_data=f"sr_svc_tog_{name}")])
+    rows.append([
+        InlineKeyboardButton("✅ Select All", callback_data="sr_svc_all"),
+        InlineKeyboardButton("⬜ Clear All",  callback_data="sr_svc_none"),
+    ])
+    label = f"🗑 Remove from {len(selected)} service(s)" if selected else "⚠️ Select at least 1"
+    rows.append([InlineKeyboardButton(label, callback_data="sr_svc_confirm")])
+    rows.append([InlineKeyboardButton("🔙 Back", callback_data="smart_remove")])
+    return InlineKeyboardMarkup(rows)
+
+
+def sold_otp_list_keyboard(summary: list):
+    """Service list with sold OTP counts."""
+    rows = []
+    for item in summary:
+        svc = item["service"]
+        cnt = item["count"]
+        rows.append([InlineKeyboardButton(
+            f"🟢 {svc}  •  {cnt} sold",
+            callback_data=f"sold_svc_{svc}"
+        )])
+    rows.append([InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")])
+    return InlineKeyboardMarkup(rows)
+
