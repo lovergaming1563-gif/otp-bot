@@ -75,7 +75,7 @@ from handlers.admin_handlers import (
     smart_remove_callback, smart_remove_type_callback,
     smart_remove_svc_toggle_callback, smart_remove_svc_all_callback,
     smart_remove_svc_none_callback, smart_remove_svc_confirm_callback,
-    handle_stock_txt_file, handle_smart_remove_txt_file,
+    handle_stock_txt_file, handle_smart_remove_txt_file, handle_admin_txt_file,
     admin_sold_otp_callback, sold_svc_detail_callback,
     sold_svc_export_callback,
     sold_clear_all_confirm_callback, sold_clear_all_do_callback,
@@ -632,8 +632,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_users_export_callback, pattern="^admin_users_export$"))
     app.add_handler(CallbackQueryHandler(admin_restore_balances_callback, pattern="^admin_restore_balances$"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("json") & filters.ChatType.PRIVATE, handle_restore_backup_file))
-    app.add_handler(MessageHandler(filters.Document.FileExtension("txt") & filters.ChatType.PRIVATE, handle_stock_txt_file))
-    app.add_handler(MessageHandler(filters.Document.FileExtension("txt") & filters.ChatType.PRIVATE, handle_smart_remove_txt_file))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("txt") & filters.ChatType.PRIVATE, handle_admin_txt_file))
     app.add_handler(CallbackQueryHandler(admin_mode_callback, pattern="^admin_mode$"))
     app.add_handler(CallbackQueryHandler(mode_set_callback, pattern="^mode_"))
     app.add_handler(CallbackQueryHandler(admin_manual_callback, pattern="^admin_manual$"))
