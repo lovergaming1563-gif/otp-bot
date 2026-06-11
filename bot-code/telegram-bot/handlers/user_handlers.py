@@ -594,7 +594,29 @@ async def support_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"        → Admin ko DM karo\n"
         f"{DIV}"
     )
-    await query.edit_message_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    support_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 Open Support Chat", url="https://t.me/OtpServiceX")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")],
+    ])
+    await query.edit_message_text(text, reply_markup=support_kb, parse_mode="Markdown")
+
+
+async def service_request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔧 Request a Service", url="https://t.me/OtpServiceX")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")],
+    ])
+    await query.edit_message_text(
+        "🔧 *Service Request*\n\n"
+        "Jo service list mein nahi hai uske liye yahan request karo!\n\n"
+        "Admin review karke jald add karenge. 🙏",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
 
 
 def _to_ist(dt):
