@@ -1553,6 +1553,63 @@ async def handle_admin_txt_file(update, context):
         )
         return
 
+    # ── Bulk Add Stock (multi-service) ────────────────────────
+    if action == "bulk_add_stock":
+        selected = context.user_data.get("bulk_add_selected", set())
+        if not selected:
+            await wait.edit_text("⚠️ Selection lost. Phir se Bulk Add kholo.", parse_mode="Markdown")
+            context.user_data.pop("admin_action", None)
+            return
+        parsed = []
+        skipped = []
+        for line in lines:
+            if "|" not in line:
+                skipped.append(f"`{line[:30]}` — missing `|`")
+                continue
+            num_part, dev_part = line.split("|", 1)
+            number = num_part.strip()
+            device_id = dev_part.strip()
+            if not number or not device_id:
+                skipped.append(f"`{line[:30]}` — empty field")
+                continue
+            parsed.append((number, device_id))
+        per_svc_added = {n: 0 for n in selected}
+        per_svc_failed = {n: 0 for n in selected}
+        for number, device_id in parsed:
+            for svc in selected:
+                try:
+                    await add_stock(number, device_id, svc)
+                    per_svc_added[svc] += 1
+                except Exception as _e:
+                    _es = str(_e)
+                    if "E11000" in _es or "duplicate key" in _es.lower():
+                        pass
+                    else:
+                        per_svc_failed[svc] += 1
+        context.user_data.pop("admin_action", None)
+        context.user_data["bulk_add_selected"] = set()
+        total_ok = sum(per_svc_added.values())
+        total_fail = sum(per_svc_failed.values())
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")]])
+        msg_lines = [
+            f"📦 *Bulk Add Done (TXT)*",
+            f"",
+            f"Numbers parsed: *{len(parsed)}*",
+            f"Services: *{len(selected)}*",
+            f"Total inserts OK: *{total_ok}*  •  Failed: *{total_fail}*",
+            f"",
+            f"*Per service:*",
+        ]
+        for svc in sorted(selected):
+            msg_lines.append(f"• {svc} — ✅ {per_svc_added[svc]}  ❌ {per_svc_failed[svc]}")
+        if skipped:
+            msg_lines.append("")
+            msg_lines.append(f"⚠️ Skipped lines ({len(skipped)}):")
+            msg_lines.extend(skipped[:10])
+        await wait.edit_text("\n".join(msg_lines), reply_markup=kb, parse_mode="Markdown")
+        return
+
     # Unknown action — ignore silently
     await wait.delete()
 
@@ -3861,11 +3918,12 @@ async def bulk_add_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     await query.edit_message_text(
         f"📦 *Bulk Add Stock*\n\n"
         f"Selected services ({len(selected)}): {svc_list}\n\n"
-        f"Ab numbers paste karo, ek line per number, format:\n"
+        f"Numbers paste karo ya *.txt* file upload karo:\n"
         f"`number | device_id`\n\n"
         f"Example:\n"
         f"`9876543210 | abc123`\n"
         f"`9876543211 | def456`\n\n"
+        f"📎 *TXT file bhi chalega!* (Ek line = ek number)\n\n"
         f"Sare numbers in saari selected services mein add ho jayenge.",
         reply_markup=kb,
         parse_mode="Markdown"
