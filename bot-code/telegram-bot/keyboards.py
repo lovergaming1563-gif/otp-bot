@@ -11,8 +11,8 @@ def main_menu_keyboard():
          InlineKeyboardButton("📋  History",   callback_data="history")],
         [InlineKeyboardButton("🎟  Redeem Promo Code", callback_data="redeem_promo")],
         [InlineKeyboardButton("🔄  Refund Request", callback_data="refund")],
-        [InlineKeyboardButton("🔧  Service Request", callback_data="service_request")],
-        [InlineKeyboardButton("💬  Support",   callback_data="support")],
+        [InlineKeyboardButton("🔧  Service Request", url="https://t.me/xServiceRequestbot")],
+        [InlineKeyboardButton("💬  Support",   url="https://t.me/OtpServiceX")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
