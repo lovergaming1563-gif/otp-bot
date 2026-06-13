@@ -723,6 +723,11 @@ async def get_pending_otp():
     """Return the most recent pending OTP if any."""
     return await db.pending_otps.find_one(sort=[("created_at", -1)])
 
+async def get_all_pending_otps() -> list:
+    """Return ALL pending OTP documents (newest first)."""
+    cursor = db.pending_otps.find(sort=[("created_at", -1)])
+    return await cursor.to_list(length=None)
+
 
 async def clear_pending_otp(otp_id):
     """Remove a pending OTP after it has been delivered."""
