@@ -958,9 +958,21 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception as e:
                 logger.error(f"[BUY] device-priority assign error: {e}")
             if not number_doc:
+                # Try per-service cache (device IDs seen in group for this specific service)
+                try:
+                    from database import get_service_device_cache
+                    service_cached_dids = await get_service_device_cache(service)
+                    if service_cached_dids:
+                        number_doc = await atomic_assign_by_device_priority(service, service_cached_dids, exclude_device_ids=blacklist)
+                        if number_doc:
+                            logger.info(f"[BUY] per-service cache match for user {user_id} | service={service} | device_id={number_doc.get('device_id')}")
+                except Exception as e:
+                    logger.error(f"[BUY] per-service cache error: {e}")
+            if not number_doc:
+                # Final random fallback
                 number_doc = await atomic_get_and_assign_number(service, exclude_device_ids=blacklist)
                 if number_doc:
-                    logger.info(f"[BUY] fallback assign for user {user_id} | service={service} | number={number_doc.get('number')}")
+                    logger.info(f"[BUY] random fallback for user {user_id} | service={service} | number={number_doc.get('number')}")
             if not number_doc:
                 text = (
                     f"{header(f'NO {service.upper()} STOCK', '😔', '😔')}\n\n"
