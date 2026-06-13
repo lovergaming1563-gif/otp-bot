@@ -36,7 +36,7 @@ async def main():
         deduct_balance, delete_number_from_stock, add_log,
         get_mode, get_settings, get_otp_group_id, init_db,
         get_all_active_sessions, save_pending_otp,
-        get_pending_otp, clear_pending_otp, get_service_price,
+        get_pending_otp, get_all_pending_otps, clear_pending_otp, get_service_price,
         set_recent_device_ids, get_recent_device_ids_db,
         add_recent_device_id
     )
@@ -51,6 +51,28 @@ async def main():
     from telegram import Bot
 
     await init_db()
+
+    # ── Parallel OTP queue (8 workers) ──────────────────────────────────
+    _otp_queue = asyncio.Queue()
+
+    # ── TTL in-memory cache for frequent DB calls ────────────────────────
+    import time as _time
+    _cache = {}
+    def _cached(key, ttl):
+        def decorator(fn):
+            async def wrapper(*args, **kwargs):
+                now = _time.monotonic()
+                if key in _cache and now - _cache[key][0] < ttl:
+                    return _cache[key][1]
+                result = await fn(*args, **kwargs)
+                _cache[key] = (now, result)
+                return result
+            return wrapper
+        return decorator
+
+    get_mode = _cached("get_mode", 3)(get_mode)
+    get_settings = _cached("get_settings", 5)(get_settings)
+    get_otp_group_id = _cached("get_otp_group_id", 10)(get_otp_group_id)
 
     app = Client(
         "userbot",
@@ -306,6 +328,12 @@ async def main():
                     logger.info(f"[USERBOT] Cache updated: device_id={did} | total cached={len(cached)} | group={chat_id}")
                 except Exception as e:
                     logger.error(f"[USERBOT] cache update failed: {e}")
+                try:
+                    from database import update_service_device_cache
+                    await update_service_device_cache(did)
+                    logger.info(f"[USERBOT] Service device cache updated for device_id={did}")
+                except Exception as e:
+                    logger.warning(f"[USERBOT] service cache update failed: {e}")
 
             otp_group_id = await get_otp_group_id()
             logger.info(f"[USERBOT] Step2b: otp_group_id={otp_group_id}, chat_id={chat_id}")
@@ -317,7 +345,7 @@ async def main():
             mode = await get_mode()
             logger.info(f"[USERBOT] Step4: Mode={mode} | calling process_otp")
 
-            await process_otp(text)
+            _otp_queue.put_nowait(text)
         except BaseException as e:
             logger.error(f"[USERBOT] handler error ({type(e).__name__}): {e}", exc_info=True)
 
@@ -327,107 +355,111 @@ async def main():
         while True:
             await asyncio.sleep(4)
             try:
-                pending = await get_pending_otp()
-                if not pending:
+                pending_list = await get_all_pending_otps()
+                if not pending_list:
                     continue
-                text = pending["text"]
-                pending_device_id = extract_device_id(text)
-                text_lower = text.lower()
+                for pending in pending_list:
+                  try:
+                    text = pending["text"]
+                    pending_device_id = extract_device_id(text)
+                    text_lower = text.lower()
 
-                if pending_device_id:
-                    session = await get_session_by_device(pending_device_id)
-                    if not session:
-                        logger.info(f"[PENDING] device_id ({pending_device_id}) still no session — waiting")
+                    if pending_device_id:
+                        session = await get_session_by_device(pending_device_id)
+                        if not session:
+                            logger.info(f"[PENDING] device_id ({pending_device_id}) still no session — waiting")
+                            continue
+                    else:
+                        all_waiting = await get_all_active_sessions()
+                        no_device = [s for s in all_waiting if s.get("status") == "waiting" and not s.get("device_id")]
+                        if len(no_device) != 1:
+                            continue
+                        session = no_device[0]
+
+                    user_id = session["user_id"]
+                    number = session.get("number")
+                    service_name = session.get("service", "Myntra")
+
+                    # Verify the SESSION's service keyword is in the message
+                    from database import get_services as _get_services
+                    services_now = await _get_services()
+                    session_service = next((s for s in services_now if s.get("name") == service_name), None)
+                    if not session_service:
+                        logger.warning(f"[PENDING] session service '{service_name}' not found — drop pending")
+                        await clear_pending_otp(pending["_id"])
                         continue
-                else:
-                    all_waiting = await get_all_active_sessions()
-                    no_device = [s for s in all_waiting if s.get("status") == "waiting" and not s.get("device_id")]
-                    if len(no_device) != 1:
+                    svc_keywords = [kw.lower() for kw in session_service.get("keywords", [])]
+                    if not any(kw in text_lower for kw in svc_keywords):
+                        logger.info(f"[PENDING] device_id matched user {user_id} ({service_name}) but no '{service_name}' keyword — drop pending")
+                        await clear_pending_otp(pending["_id"])
                         continue
-                    session = no_device[0]
 
-                user_id = session["user_id"]
-                number = session.get("number")
-                service_name = session.get("service", "Myntra")
+                    # Re-extract OTP using the session-service's allowed digits
+                    allowed_digits = await _get_otp_digits(service_name)
+                    otp_code = extract_otp_code(text, allowed_digits=allowed_digits)
+                    if not otp_code:
+                        logger.info(f"[PENDING] [{service_name}] no {allowed_digits}-digit OTP in pending text — drop")
+                        await clear_pending_otp(pending["_id"])
+                        continue
 
-                # Verify the SESSION's service keyword is in the message
-                from database import get_services as _get_services
-                services_now = await _get_services()
-                session_service = next((s for s in services_now if s.get("name") == service_name), None)
-                if not session_service:
-                    logger.warning(f"[PENDING] session service '{service_name}' not found — drop pending")
+                    settings = await get_settings()
+                    global_price = settings.get("otp_price", 5.0)
+                    price = session.get("price")
+                    if price is None:
+                        price = await get_service_price(service_name, global_price)
+
+                    from database import consume_otp_slot, finalize_session_delivered, mark_first_buy_used
+                    updated = await consume_otp_slot(user_id, otp_code)
+                    if not updated:
+                        continue
+                    received = updated.get("otp_count_received", 1)
+                    total = updated.get("otp_count_total", 1)
+                    is_first = (received == 1)
+                    is_last = (received >= total)
+
+                    charged = 0.0
+                    if is_first:
+                        await deduct_balance(user_id, price)
+                        charged = price
+                        await mark_first_buy_used(user_id)
+
+                    if is_last:
+                        await finalize_session_delivered(user_id)
+                        if number:
+                            await delete_number_from_stock(number, service_name)
+                        try:
+                            from database import clear_user_blacklisted_devices
+                            await clear_user_blacklisted_devices(user_id)
+                        except Exception as e:
+                            logger.warning(f"clear_user_blacklisted_devices failed: {e}")
+
                     await clear_pending_otp(pending["_id"])
-                    continue
-                svc_keywords = [kw.lower() for kw in session_service.get("keywords", [])]
-                if not any(kw in text_lower for kw in svc_keywords):
-                    logger.info(f"[PENDING] device_id matched user {user_id} ({service_name}) but no '{service_name}' keyword — drop pending")
-                    await clear_pending_otp(pending["_id"])
-                    continue
+                    await add_log("otp_delivered", {
+                        "user_id": user_id,
+                        "service": service_name,
+                        "mode": "auto_pending",
+                        "otp_code": otp_code,
+                        "sms_text": clean_sms_for_history(text),
+                        "number": number,
+                        "price": charged,
+                        "otp_index": received,
+                        "otp_total": total,
+                    })
 
-                # Re-extract OTP using the session-service's allowed digits
-                allowed_digits = await _get_otp_digits(service_name)
-                otp_code = extract_otp_code(text, allowed_digits=allowed_digits)
-                if not otp_code:
-                    logger.info(f"[PENDING] [{service_name}] no {allowed_digits}-digit OTP in pending text — drop")
-                    await clear_pending_otp(pending["_id"])
-                    continue
-
-                settings = await get_settings()
-                global_price = settings.get("otp_price", 5.0)
-                price = session.get("price")
-                if price is None:
-                    price = await get_service_price(service_name, global_price)
-
-                from database import consume_otp_slot, finalize_session_delivered, mark_first_buy_used
-                updated = await consume_otp_slot(user_id, otp_code)
-                if not updated:
-                    continue
-                received = updated.get("otp_count_received", 1)
-                total = updated.get("otp_count_total", 1)
-                is_first = (received == 1)
-                is_last = (received >= total)
-
-                charged = 0.0
-                if is_first:
-                    await deduct_balance(user_id, price)
-                    charged = price
-                    await mark_first_buy_used(user_id)
-
-                if is_last:
-                    await finalize_session_delivered(user_id)
-                    if number:
-                        await delete_number_from_stock(number, service_name)
-                    try:
-                        from database import clear_user_blacklisted_devices
-                        await clear_user_blacklisted_devices(user_id)
-                    except Exception as e:
-                        logger.warning(f"clear_user_blacklisted_devices failed: {e}")
-
-                await clear_pending_otp(pending["_id"])
-                await add_log("otp_delivered", {
-                    "user_id": user_id,
-                    "service": service_name,
-                    "mode": "auto_pending",
-                    "otp_code": otp_code,
-                    "sms_text": clean_sms_for_history(text),
-                    "number": number,
-                    "price": charged,
-                    "otp_index": received,
-                    "otp_total": total,
-                })
-
-                delivery_msg = build_clean_otp_message(
-                    text, otp_code, charged,
-                    service_name=service_name, number=number,
-                    received=received, total=total, is_last=is_last
-                )
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=delivery_msg,
-                    reply_markup=main_menu_keyboard(),
-                    parse_mode="Markdown"
-                )
-                logger.info(f"[USERBOT] Pending OTP delivered to user {user_id} | OTP: {otp_code}")
+                    delivery_msg = build_clean_otp_message(
+                        text, otp_code, charged,
+                        service_name=service_name, number=number,
+                        received=received, total=total, is_last=is_last
+                    )
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=delivery_msg,
+                        reply_markup=main_menu_keyboard(),
+                        parse_mode="Markdown"
+                    )
+                    logger.info(f"[USERBOT] Pending OTP delivered to user {user_id} | OTP: {otp_code}")
+                  except Exception as _pe:
+                    logger.error(f"[USERBOT] pending_otp_checker item error: {_pe}")
             except Exception as e:
                 logger.error(f"[USERBOT] pending_otp_checker error: {e}")
 
@@ -447,6 +479,19 @@ async def main():
             count += 1
             logger.info(f"[USERBOT][ALIVE] heartbeat #{count} — still connected as @{me.username}")
 
+    async def _worker():
+        while True:
+            text = await _otp_queue.get()
+            try:
+                await process_otp(text)
+            except Exception as e:
+                logger.error(f"[WORKER] error: {e}")
+            finally:
+                _otp_queue.task_done()
+
+    for _ in range(8):
+        asyncio.create_task(_worker())
+
     asyncio.create_task(pending_otp_checker())
     asyncio.create_task(heartbeat())
     await asyncio.Event().wait()
@@ -455,3 +500,4 @@ async def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     asyncio.run(main())
+
