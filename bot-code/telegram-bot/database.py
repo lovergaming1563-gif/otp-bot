@@ -7,7 +7,7 @@ client = None
 db = None
 
 # Recent device_ids cache — admin-configurable size (1..200), default 10.
-DEFAULT_RECENT_DEVICES_CACHE_SIZE = 10
+DEFAULT_RECENT_DEVICES_CACHE_SIZE = 30
 MIN_RECENT_DEVICES_CACHE_SIZE = 1
 MAX_RECENT_DEVICES_CACHE_SIZE = 200
 
@@ -352,36 +352,55 @@ async def add_recent_device_id(device_id: str):
     )
 
 
-async def get_recent_device_ids_db(max_age_minutes: int = 60) -> list:
-    """Read recent device_ids cache from DB, filtering out entries older than max_age_minutes.
-    Entries with no timestamp (legacy) are also returned (treated as fresh).
-    Returns list of device_id strings, newest first."""
-    import datetime as _dt
+async def get_recent_device_ids_db() -> list:
+    """Read recent device_ids cache from DB. Returns newest-first list (count-based only, no time filter)."""
     doc = await db.settings.find_one({"_id": "recent_device_ids"})
     if not doc:
         return []
-    cutoff = _dt.datetime.utcnow() - _dt.timedelta(minutes=max_age_minutes)
-    # New format: entries list with timestamps
     if isinstance(doc.get("entries"), list):
-        fresh = []
-        for e in doc["entries"]:
-            eid = str(e.get("id", "")).strip().lower()
-            if not eid:
-                continue
-            ts_str = e.get("ts")
-            if ts_str:
-                try:
-                    ts = _dt.datetime.fromisoformat(ts_str)
-                    if ts < cutoff:
-                        continue  # stale — skip
-                except Exception:
-                    pass  # can't parse ts — include it anyway
-            fresh.append(eid)
-        return fresh
-    # Legacy format: plain list (no timestamps — return as-is)
+        return [str(e.get("id", "")).strip().lower() for e in doc["entries"] if e.get("id")]
     if isinstance(doc.get("ids"), list):
         return [str(x).strip().lower() for x in doc["ids"] if x]
     return []
+
+
+
+async def get_service_device_cache(service: str) -> list:
+    """Get cached device IDs for a specific service (newest first, max 10)."""
+    doc = await db.settings.find_one({"_id": "service_device_cache"})
+    if not doc:
+        return []
+    return doc.get("services", {}).get(service, [])
+
+
+async def update_service_device_cache(device_id: str):
+    """Check device_id against ALL services in stock. Add to every matching service cache (max 10 each, newest first)."""
+    if not device_id:
+        return
+    nd = str(device_id).strip().lower()
+    # Find all services this device_id belongs to in stock
+    cursor = db.stock.find({"device_id": {"$regex": f"^{nd}$", "$options": "i"}}, {"service": 1})
+    services_found = set()
+    async for doc in cursor:
+        svc = doc.get("service")
+        if svc:
+            services_found.add(svc)
+    if not services_found:
+        return
+    # For each matching service, prepend device_id to its cache (max 10, dedupe, newest first)
+    doc = await db.settings.find_one({"_id": "service_device_cache"}) or {}
+    services_map = doc.get("services", {})
+    for svc in services_found:
+        current = services_map.get(svc, [])
+        # Dedupe and prepend
+        current = [d for d in current if d != nd]
+        current = [nd] + current
+        services_map[svc] = current[:10]
+    await db.settings.update_one(
+        {"_id": "service_device_cache"},
+        {"$set": {"services": services_map}},
+        upsert=True,
+    )
 
 
 async def atomic_assign_by_device_priority(service: str, device_ids: list, exclude_device_ids: list = None):
