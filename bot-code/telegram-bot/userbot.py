@@ -130,10 +130,19 @@ async def main():
 
         if not session:
             if device_id:
-                # device_id present but no session — keep it in pending; a future
-                # buy with the same device_id will pick it up (with full validation).
+                # Before saving to pending, check if device_id exists in stock at all.
+                # If it doesn't exist in stock, no user can ever have a session with it → skip.
+                try:
+                    from database import db as _db
+                    stock_match = await _db.stock.find_one(
+                        {"device_id": {"$regex": f"^{device_id}$", "$options": "i"}}
+                    )
+                    if not stock_match:
+                        logger.info(f"[USERBOT] device_id ({device_id}) not in any stock — skip pending")
+                        return
+                except Exception as _se:
+                    logger.warning(f"[USERBOT] stock check failed: {_se}")
                 logger.warning(f"[USERBOT] device_id ({device_id}) matched no session — saving to pending queue")
-                # Save with a wider OTP digit window so pending_otp_checker can re-derive
                 wider_otp = extract_otp_code(text, allowed_digits=[3, 4, 5, 6, 7, 8])
                 if wider_otp:
                     await save_pending_otp(text, wider_otp)
