@@ -5463,3 +5463,25 @@ async def import_services_command(update: Update, context: ContextTypes.DEFAULT_
         f"• Skipped (already existed): `{skipped}`",
         parse_mode="Markdown"
     )
+
+
+async def fix_digits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        return
+    from database import db as mongo_db
+    fixes = [
+        "Airbnb", "Claude", "Discord", "Netflix",
+        "Ola Cabs", "Porter", "Rapido", "Spotify", "Uber"
+    ]
+    updated = 0
+    for name in fixes:
+        result = await mongo_db.services.update_one(
+            {"name": name},
+            {"$set": {"otp_digits": [4, 6]}}
+        )
+        if result.modified_count:
+            updated += 1
+    await update.message.reply_text(
+        f"✅ Fixed otp_digits for {updated}/{len(fixes)} services to [4, 6]"
+    )
