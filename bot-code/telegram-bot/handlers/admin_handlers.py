@@ -94,7 +94,25 @@ async def admin_stock_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     text = "📦 *Stock Management*\n\nHar service ka alag stock. Service choose karo:"
     await query.edit_message_text(
         text,
-        reply_markup=admin_stock_keyboard(services, summary),
+        reply_markup=admin_stock_keyboard(services, summary, page=0),
+        parse_mode="Markdown"
+    )
+
+
+async def stock_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    try:
+        page = int(query.data.replace("stock_page_", ""))
+    except ValueError:
+        page = 0
+    services = await get_services()
+    summary = await get_stock_summary()
+    await query.edit_message_text(
+        "📦 *Stock Management*\n\nHar service ka alag stock. Service choose karo:",
+        reply_markup=admin_stock_keyboard(services, summary, page=page),
         parse_mode="Markdown"
     )
 

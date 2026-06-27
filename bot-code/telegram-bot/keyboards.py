@@ -364,7 +364,7 @@ def reset_stats_confirm_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def admin_stock_keyboard(services: list = None, summary: dict = None):
+def admin_stock_keyboard(services: list = None, summary: dict = None, page: int = 0, per_page: int = 10):
     keyboard = []
     # Action buttons FIRST (always visible)
     keyboard.append([
@@ -379,9 +379,13 @@ def admin_stock_keyboard(services: list = None, summary: dict = None):
         InlineKeyboardButton("📊 Sold OTPs", callback_data="admin_sold_otp"),
         InlineKeyboardButton("🔙 Back", callback_data="admin_back"),
     ])
-    # Service buttons below (may be cut off by Telegram's 100-button limit but actions are safe)
+    # Paginated service buttons
     if services:
-        for s in services:
+        total = len(services)
+        start = page * per_page
+        end = start + per_page
+        page_services = services[start:end]
+        for s in page_services:
             name = s["name"]
             count = (summary or {}).get(name, 0)
             status = "✅" if s.get("active") else "❌"
@@ -391,6 +395,18 @@ def admin_stock_keyboard(services: list = None, summary: dict = None):
                     callback_data=f"stock_svc_{name}"
                 )
             ])
+        # Pagination nav
+        has_prev = page > 0
+        has_next = end < total
+        if has_prev or has_next:
+            total_pages = (total + per_page - 1) // per_page
+            nav = []
+            if has_prev:
+                nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"stock_page_{page - 1}"))
+            nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
+            if has_next:
+                nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"stock_page_{page + 1}"))
+            keyboard.append(nav)
     return InlineKeyboardMarkup(keyboard)
 
 

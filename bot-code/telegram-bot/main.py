@@ -24,7 +24,7 @@ from handlers.user_handlers import (
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
-    admin_stock_callback, stock_svc_callback, stock_view_callback,
+    admin_stock_callback, stock_page_callback, stock_svc_callback, stock_view_callback,
     stock_add_callback, stock_remove_callback,
     stock_clear_all_callback, stock_clear_confirm_callback,
     stock_clear_svc_callback, stock_clear_svc_confirm_callback,
@@ -805,6 +805,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_back_callback, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_stats_callback, pattern="^admin_stats$"))
     app.add_handler(CallbackQueryHandler(admin_stock_callback, pattern="^admin_stock$"))
+    app.add_handler(CallbackQueryHandler(stock_page_callback, pattern="^stock_page_"))
     app.add_handler(CallbackQueryHandler(stock_svc_callback, pattern="^stock_svc_"))
     app.add_handler(CallbackQueryHandler(stock_view_callback, pattern="^stock_view_"))
     app.add_handler(CallbackQueryHandler(stock_add_callback, pattern="^stock_add_"))
