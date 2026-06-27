@@ -8,8 +8,9 @@ def main_menu_keyboard():
         [InlineKeyboardButton("💰  Deposit",   callback_data="deposit"),
          InlineKeyboardButton("👤  Profile",   callback_data="profile")],
         [InlineKeyboardButton("🎁  Refer & Earn", callback_data="refer"),
-         InlineKeyboardButton("📋  History",   callback_data="history")],
-        [InlineKeyboardButton("🎟  Redeem Promo Code", callback_data="redeem_promo")],
+         InlineKeyboardButton("🏆  Leaderboard", callback_data="leaderboard")],
+        [InlineKeyboardButton("📋  History",   callback_data="history"),
+         InlineKeyboardButton("🎟  Redeem Promo", callback_data="redeem_promo")],
         [InlineKeyboardButton("🔄  Refund Request", callback_data="refund")],
         [InlineKeyboardButton("🔧  Service Request", url="https://t.me/xServiceRequestbot")],
         [InlineKeyboardButton("💬  Support",   url="https://t.me/OtpServiceX")],
@@ -469,6 +470,7 @@ def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bo
          InlineKeyboardButton("🖼 QR Code",     callback_data="set_qr")],
         [InlineKeyboardButton("💵 Min Deposit", callback_data="set_min_deposit")],
         [InlineKeyboardButton("🆕 First-Buy Discount %", callback_data="set_first_buy_disc")],
+        [InlineKeyboardButton("💎 Referral & Season Settings", callback_data="admin_feature_settings")],
         [InlineKeyboardButton("🧠 Smart Match Cache Size", callback_data="set_cache_size")],
         [InlineKeyboardButton("📱 SMS Auto-Verify Status", callback_data="admin_sms_status")],
         [InlineKeyboardButton("📜 Used UTRs (last 50)",   callback_data="admin_used_utrs")],
@@ -537,9 +539,64 @@ def user_actions_keyboard(user_id: int, banned: bool):
         [InlineKeyboardButton("➕ Add Balance",    callback_data=f"addbal_{user_id}"),
          InlineKeyboardButton("➖ Deduct Balance", callback_data=f"dedbal_{user_id}")],
         [InlineKeyboardButton("🔄 Reset Balance → 0", callback_data=f"resetbal_{user_id}")],
+        [InlineKeyboardButton("🔄 Reset Referral", callback_data=f"admin_reset_ref_{user_id}"),
+         InlineKeyboardButton("🔓 Unlock Locked", callback_data=f"admin_unlock_locked_{user_id}")],
+        [InlineKeyboardButton("⭐ Set Streak", callback_data=f"admin_set_streak_{user_id}"),
+         InlineKeyboardButton("📊 Set Weekly Count", callback_data=f"admin_set_weekly_{user_id}")],
+        [InlineKeyboardButton("🎁 Give Bonus", callback_data=f"admin_give_bonus_{user_id}")],
         [InlineKeyboardButton(ban_text, callback_data=ban_cb),
          InlineKeyboardButton("📝 Notes", callback_data=f"notes_{user_id}")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_feature_settings_keyboard(settings: dict):
+    streak_enabled = settings.get("streak_bonus_enabled", True)
+    leaderboard_enabled = settings.get("leaderboard_enabled", True)
+    rem_thurs = settings.get("reminder_thursday_enabled", True)
+    rem_sun2h = settings.get("reminder_sunday_2hr_enabled", True)
+    rem_sun1h = settings.get("reminder_sunday_1hr_enabled", True)
+    welcome_enabled = settings.get("welcome_bonus_enabled", True)
+    hh_enabled = settings.get("happy_hours_enabled", False)
+    fake_guard = settings.get("fake_referral_guard_enabled", False)
+    trap_enabled = settings.get("trap_rule_enabled", True)
+    weekly_reset = settings.get("weekly_reset_enabled", True)
+
+    keyboard = [
+        [InlineKeyboardButton("🥉 Bronze Amt", callback_data="set_tier_bronze"),
+         InlineKeyboardButton("🥈 Silver Amt", callback_data="set_tier_silver")],
+        [InlineKeyboardButton("🥇 Gold Amt", callback_data="set_tier_gold")],
+        
+        [InlineKeyboardButton(f"⭐ Streak: {'ON 🟢' if streak_enabled else 'OFF 🔴'}", callback_data="toggle_streak_enabled"),
+         InlineKeyboardButton("⭐ Streak Weeks", callback_data="set_streak_weeks")],
+        [InlineKeyboardButton("⭐ Streak Bonus Amt", callback_data="set_streak_bonus")],
+        
+        [InlineKeyboardButton(f"🏆 Leaderboard: {'ON 🟢' if leaderboard_enabled else 'OFF 🔴'}", callback_data="toggle_leaderboard_enabled")],
+        [InlineKeyboardButton("🏆 1st Prize", callback_data="set_leaderboard_prize1"),
+         InlineKeyboardButton("🏆 2nd Prize", callback_data="set_leaderboard_prize2")],
+        [InlineKeyboardButton("🏆 3rd Prize", callback_data="set_leaderboard_prize3")],
+        
+        [InlineKeyboardButton(f"🔔 Thu Rem: {'ON 🟢' if rem_thurs else 'OFF 🔴'}", callback_data="toggle_rem_thurs"),
+         InlineKeyboardButton(f"🔔 Sun 2hr Rem: {'ON 🟢' if rem_sun2h else 'OFF 🔴'}", callback_data="toggle_rem_sun2h")],
+        [InlineKeyboardButton(f"🔔 Sun 1hr Rem: {'ON 🟢' if rem_sun1h else 'OFF 🔴'}", callback_data="toggle_rem_sun1h")],
+        
+        [InlineKeyboardButton(f"🎉 Welcome: {'ON 🟢' if welcome_enabled else 'OFF 🔴'}", callback_data="toggle_welcome_enabled"),
+         InlineKeyboardButton("🎉 Welcome Min", callback_data="set_welcome_min")],
+        [InlineKeyboardButton("🎉 Welcome Max", callback_data="set_welcome_max")],
+        
+        [InlineKeyboardButton(f"⚡ Happy Hours: {'ON 🟢' if hh_enabled else 'OFF 🔴'}", callback_data="toggle_hh_enabled"),
+         InlineKeyboardButton("⚡ HH Start", callback_data="set_hh_start")],
+        [InlineKeyboardButton("⚡ HH End", callback_data="set_hh_end"),
+         InlineKeyboardButton("⚡ HH Bonus %", callback_data="set_hh_pct")],
+         
+        [InlineKeyboardButton(f"🛡️ Fake Guard: {'ON 🟢' if fake_guard else 'OFF 🔴'}", callback_data="toggle_fake_guard"),
+         InlineKeyboardButton("🛡️ Guard Hours", callback_data="set_fake_guard_hours")],
+         
+        [InlineKeyboardButton(f"🔒 Trap Rule: {'ON 🟢' if trap_enabled else 'OFF 🔴'}", callback_data="toggle_trap_rule"),
+         InlineKeyboardButton(f"🔄 Toggle Weekly Reset: {'ON 🟢' if weekly_reset else 'OFF 🔴'}", callback_data="toggle_weekly_reset")],
+         
+        [InlineKeyboardButton("🔙 Back to Settings", callback_data="admin_settings")]
     ]
     return InlineKeyboardMarkup(keyboard)
 

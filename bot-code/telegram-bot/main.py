@@ -19,6 +19,7 @@ from handlers.user_handlers import (
     i_paid_handler, i_paid_retry_handler,
     pay_aloo_callback, pay_rocket_callback, rocket_paid_handler,
     service_request_callback,
+    terms_agree_callback, leaderboard_callback, team_callback,
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
@@ -80,6 +81,13 @@ from handlers.admin_handlers import (
     sold_svc_export_callback,
     sold_clear_all_confirm_callback, sold_clear_all_do_callback,
     sold_clear_svc_confirm_callback, sold_clear_svc_do_callback,
+    admin_feature_settings_callback, admin_reset_ref_callback, admin_unlock_locked_callback,
+    admin_set_streak_callback, admin_set_weekly_callback, admin_give_bonus_callback,
+    toggle_streak_enabled_callback, toggle_leaderboard_enabled_callback,
+    toggle_rem_thurs_callback, toggle_rem_sun2h_callback, toggle_rem_sun1h_callback,
+    toggle_welcome_enabled_callback, toggle_hh_enabled_callback,
+    toggle_fake_guard_callback, toggle_trap_rule_callback, toggle_weekly_reset_callback,
+    admin_suspicious_callback, suspicious_ignore_handler, suspicious_ban_handler,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -500,6 +508,156 @@ async def send_daily_report(context):
         logger.warning(f"Daily report error: {e}")
 
 
+async def sunday_reset_job(context: ContextTypes.DEFAULT_TYPE):
+    from database import get_settings, get_weekly_leaderboard, award_leaderboard_prizes, weekly_season_reset, get_all_users
+    
+    settings = await get_settings()
+    if not settings.get("weekly_reset_enabled", True):
+        logger.info("[RESET] Weekly reset is disabled by admin setting.")
+        return
+        
+    logger.info("[RESET] Starting weekly season reset...")
+    
+    leaderboard_enabled = settings.get("leaderboard_enabled", True)
+    winners = []
+    if leaderboard_enabled:
+        winners = await get_weekly_leaderboard(limit=3)
+        prizes = [
+            float(settings.get("leaderboard_prize_1", 100)),
+            float(settings.get("leaderboard_prize_2", 60)),
+            float(settings.get("leaderboard_prize_3", 30))
+        ]
+        await award_leaderboard_prizes(winners, prizes)
+        logger.info(f"[RESET] Awarded leaderboard prizes to {len(winners)} users.")
+        
+    streak_winners = await weekly_season_reset()
+    logger.info(f"[RESET] Weekly reset database operations completed. Streak winners: {len(streak_winners)}")
+    
+    for sw in streak_winners:
+        try:
+            await context.bot.send_message(
+                chat_id=sw["user_id"],
+                text=f"🎉 *CONGRATULATIONS!*\n\nAapne Gold streak maintain ki aur aapko *₹{sw['amount']:.0f}* streak bonus mila! Keep it up! 🚀",
+                parse_mode="Markdown"
+            )
+        except Exception as ne:
+            logger.warning(f"Could not notify streak winner {sw['user_id']}: {ne}")
+            
+    if leaderboard_enabled and winners:
+        lines = [
+            "🏆 *WEEKLY LEADERBOARD WINNERS* 🏆",
+            "━━━━━━━━━━━━━━━━━━",
+            "Weekly referral contest ke winners announce ho gaye hain:\n"
+        ]
+        medals = ["🥇", "🥈", "🥉"]
+        prizes_val = [
+            float(settings.get("leaderboard_prize_1", 100)),
+            float(settings.get("leaderboard_prize_2", 60)),
+            float(settings.get("leaderboard_prize_3", 30))
+        ]
+        for i, w in enumerate(winners):
+            name = w.get("first_name", "User")
+            uid = w["user_id"]
+            refs = w.get("weekly_referrals", 0)
+            prize = prizes_val[i] if i < len(prizes_val) else 0.0
+            lines.append(f"{medals[i]} *{name}* (ID: `{uid}`) — *{refs} refs* (Prize: ₹{prize:.0f})")
+            
+        lines.append("\n━━━━━━━━━━━━━━━━━━")
+        lines.append("Naya week start ho gaya hai! Referral link share karo aur leaderboard pe aao! 🚀")
+        broadcast_text = "\n".join(lines)
+        
+        all_users = await get_all_users()
+        for u in all_users:
+            try:
+                await context.bot.send_message(chat_id=u["user_id"], text=broadcast_text, parse_mode="Markdown")
+            except Exception:
+                pass
+
+
+async def release_holds_job(context: ContextTypes.DEFAULT_TYPE):
+    from database import get_settings, release_pending_referral_holds
+    settings = await get_settings()
+    guard_hours = float(settings.get("fake_referral_guard_hours", 48.0))
+    released = await release_pending_referral_holds(guard_hours)
+    if released > 0:
+        logger.info(f"[GUARD] Released pending referral holds for {released} users.")
+
+
+async def thursday_reminder_job(context: ContextTypes.DEFAULT_TYPE):
+    from database import get_settings, get_all_users
+    settings = await get_settings()
+    if not settings.get("reminder_thursday_enabled", True):
+        return
+        
+    users = await get_all_users()
+    for u in users:
+        refs = u.get("weekly_referrals", 0)
+        if refs < 16:
+            needed = 16 - refs
+            msg = (
+                f"🔔 *WEEKLY CHALLENGE REMINDER!* 🔔\n\n"
+                f"Aapke paas abhi *{refs}* weekly referrals hain.\n"
+                f"Aapko Gold tier streak maintain karne ke liye *{needed} aur referrals* chahiye!\n\n"
+                f"Sunday midnight se pehle target complete karein aur streak bonus jeetein! 🚀"
+            )
+            try:
+                await context.bot.send_message(chat_id=u["user_id"], text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
+
+
+async def sunday_2hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
+    from database import get_settings, get_all_users, compute_referral_lock
+    settings = await get_settings()
+    if not settings.get("reminder_sunday_2hr_enabled", True):
+        return
+        
+    users = await get_all_users()
+    for u in users:
+        ref_earning = float(u.get("referral_earning", 0.0))
+        deposited = float(u.get("total_deposit", 0.0))
+        locks = compute_referral_lock(ref_earning, deposited)
+        locked = locks["locked"]
+        
+        if locked > 0:
+            msg = (
+                f"⚠️ *RESTRICTED BALANCE EXPIRY WARNING* ⚠️\n\n"
+                f"Aapka *₹{locked:.2f}* referral balance restricted/locked hai.\n"
+                f"Yeh locked balance next *2 hours* mein expire ho jayega!\n\n"
+                f"Ise safe rakhne ke liye abhi deposit karein ya convert karein. Parity rules check karein! 💸"
+            )
+            try:
+                await context.bot.send_message(chat_id=u["user_id"], text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
+
+
+async def sunday_1hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
+    from database import get_settings, get_all_users, compute_referral_lock
+    settings = await get_settings()
+    if not settings.get("reminder_sunday_1hr_enabled", True):
+        return
+        
+    users = await get_all_users()
+    for u in users:
+        ref_earning = float(u.get("referral_earning", 0.0))
+        deposited = float(u.get("total_deposit", 0.0))
+        locks = compute_referral_lock(ref_earning, deposited)
+        locked = locks["locked"]
+        
+        if locked > 0:
+            msg = (
+                f"🚨 *RESTRICTED BALANCE CRITICAL EXPIRY* 🚨\n\n"
+                f"Aapka *₹{locked:.2f}* referral balance restricted/locked hai.\n"
+                f"Yeh locked balance next *1 hour* mein complete forfeit ho jayega!\n\n"
+                f"Jaldi karein, deposit karke apna balance secure karein! ⏱"
+            )
+            try:
+                await context.bot.send_message(chat_id=u["user_id"], text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
+
+
 async def post_init(application: Application):
     logger.info("[BOOT] post_init: connecting to MongoDB...")
     try:
@@ -511,22 +669,63 @@ async def post_init(application: Application):
     logger.info("[BOOT] ✅ Bot is now LIVE and accepting updates.")
 
     import datetime as _dt
+    import zoneinfo
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    
     job_queue = application.job_queue
-    job_queue.run_daily(
-        send_daily_report,
-        time=_dt.time(hour=18, minute=29, second=0),
-        name="daily_report"
-    )
     if job_queue is None:
         logger.error("[BOOT] ❌ JobQueue is None! Install python-telegram-bot[job-queue]. Health monitor DISABLED.")
     else:
+        # Schedule existing jobs
+        job_queue.run_daily(
+            send_daily_report,
+            time=_dt.time(hour=18, minute=29, second=0),
+            name="daily_report"
+        )
         job_queue.run_repeating(
             group_health_check,
             interval=300,   # every 5 minutes
             first=60,       # first check 1 min after boot
             name="group_health_check"
         )
-        logger.info(f"[BOOT] ✅ Group health monitor scheduled (every 5 min, threshold 10 min). Admins: {ADMIN_IDS}")
+        
+        # Feature 3: Weekly Reset Job (Sunday 00:00 IST)
+        job_queue.run_daily(
+            sunday_reset_job,
+            time=_dt.time(hour=0, minute=0, second=0, tzinfo=IST),
+            days=(6,),
+            name="weekly_season_reset"
+        )
+        
+        # Feature 6: Release Holds Job (every 30 min)
+        job_queue.run_repeating(
+            release_holds_job,
+            interval=1800,
+            first=60,
+            name="release_holds"
+        )
+        
+        # Feature 7: Reminder Jobs
+        job_queue.run_daily(
+            thursday_reminder_job,
+            time=_dt.time(hour=20, minute=0, second=0, tzinfo=IST),
+            days=(3,),
+            name="thursday_reminder"
+        )
+        job_queue.run_daily(
+            sunday_2hr_reminder_job,
+            time=_dt.time(hour=22, minute=0, second=0, tzinfo=IST),
+            days=(6,),
+            name="sunday_2hr_reminder"
+        )
+        job_queue.run_daily(
+            sunday_1hr_reminder_job,
+            time=_dt.time(hour=23, minute=0, second=0, tzinfo=IST),
+            days=(6,),
+            name="sunday_1hr_reminder"
+        )
+        
+        logger.info(f"[BOOT] ✅ All jobs scheduled in IST. Admins: {ADMIN_IDS}")
 
 
 async def maintenance_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -781,6 +980,32 @@ def main():
     app.add_handler(CallbackQueryHandler(service_page_callback, pattern="^svc_page_"))
     # No-op for the "📄 page X" indicator button
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
+    app.add_handler(CallbackQueryHandler(terms_agree_callback, pattern="^terms_agree$"))
+    app.add_handler(CallbackQueryHandler(leaderboard_callback, pattern="^leaderboard$"))
+    app.add_handler(CallbackQueryHandler(team_callback, pattern="^my_team$"))
+    
+    app.add_handler(CallbackQueryHandler(admin_feature_settings_callback, pattern="^admin_feature_settings$"))
+    app.add_handler(CallbackQueryHandler(admin_reset_ref_callback, pattern="^admin_reset_ref_"))
+    app.add_handler(CallbackQueryHandler(admin_unlock_locked_callback, pattern="^admin_unlock_locked_"))
+    app.add_handler(CallbackQueryHandler(admin_set_streak_callback, pattern="^admin_set_streak_"))
+    app.add_handler(CallbackQueryHandler(admin_set_weekly_callback, pattern="^admin_set_weekly_"))
+    app.add_handler(CallbackQueryHandler(admin_give_bonus_callback, pattern="^admin_give_bonus_"))
+    
+    app.add_handler(CallbackQueryHandler(toggle_streak_enabled_callback, pattern="^toggle_streak_enabled$"))
+    app.add_handler(CallbackQueryHandler(toggle_leaderboard_enabled_callback, pattern="^toggle_leaderboard_enabled$"))
+    app.add_handler(CallbackQueryHandler(toggle_rem_thurs_callback, pattern="^toggle_rem_thurs$"))
+    app.add_handler(CallbackQueryHandler(toggle_rem_sun2h_callback, pattern="^toggle_rem_sun2h$"))
+    app.add_handler(CallbackQueryHandler(toggle_rem_sun1h_callback, pattern="^toggle_rem_sun1h$"))
+    app.add_handler(CallbackQueryHandler(toggle_welcome_enabled_callback, pattern="^toggle_welcome_enabled$"))
+    app.add_handler(CallbackQueryHandler(toggle_hh_enabled_callback, pattern="^toggle_hh_enabled$"))
+    app.add_handler(CallbackQueryHandler(toggle_fake_guard_callback, pattern="^toggle_fake_guard$"))
+    app.add_handler(CallbackQueryHandler(toggle_trap_rule_callback, pattern="^toggle_trap_rule$"))
+    app.add_handler(CallbackQueryHandler(toggle_weekly_reset_callback, pattern="^toggle_weekly_reset$"))
+    
+    app.add_handler(CallbackQueryHandler(admin_suspicious_callback, pattern="^admin_suspicious$"))
+    app.add_handler(CallbackQueryHandler(suspicious_ignore_handler, pattern="^suspicious_ignore_"))
+    app.add_handler(CallbackQueryHandler(suspicious_ban_handler, pattern="^suspicious_ban_"))
+
     app.add_handler(CallbackQueryHandler(refund_approve_callback, pattern="^refund_approve_"))
     app.add_handler(CallbackQueryHandler(refund_reject_callback, pattern="^refund_reject_"))
 

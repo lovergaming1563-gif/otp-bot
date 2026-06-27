@@ -2181,6 +2181,44 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = context.user_data.get("admin_action")
     text = update.message.text.strip()
 
+    # Generic settings set handler
+    import re as _re
+    setting_actions = {
+        "set_tier_bronze": ("tier_bronze_amount", float),
+        "set_tier_silver": ("tier_silver_amount", float),
+        "set_tier_gold": ("tier_gold_amount", float),
+        "set_streak_weeks": ("streak_weeks_required", int),
+        "set_streak_bonus": ("streak_bonus_amount", float),
+        "set_leaderboard_prize1": ("leaderboard_prize_1", float),
+        "set_leaderboard_prize2": ("leaderboard_prize_2", float),
+        "set_leaderboard_prize3": ("leaderboard_prize_3", float),
+        "set_welcome_min": ("welcome_bonus_min", int),
+        "set_welcome_max": ("welcome_bonus_max", int),
+        "set_hh_start": ("happy_hours_start", str),
+        "set_hh_end": ("happy_hours_end", str),
+        "set_hh_pct": ("happy_hours_bonus_pct", float),
+        "set_fake_guard_hours": ("fake_referral_guard_hours", int),
+    }
+    
+    if action in setting_actions:
+        setting_key, val_type = setting_actions[action]
+        try:
+            val = val_type(text)
+            if val_type == str:
+                if action in ("set_hh_start", "set_hh_end"):
+                    if not _re.match(r"^\d{2}:\d{2}$", text):
+                        raise ValueError("Time must be in HH:MM format (e.g. 18:30)")
+            await update_settings(setting_key, val)
+            context.user_data.pop("admin_action", None)
+            
+            from database import get_settings as _get_settings
+            settings = await _get_settings()
+            await send_feature_settings_screen(update.message.reply_text, settings)
+            return
+        except Exception as e:
+            await update.message.reply_text(f"❌ Invalid value: {e}. Try again:")
+            return
+
     if action == "remove_stock_number":
         number = text.strip()
         service = context.user_data.get("stock_service", "")
@@ -2388,43 +2426,60 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import re as _re
             cleaned = _re.sub(r'[^\d]', '', text)
             uid = int(cleaned)
-            db_user = await get_user(uid)
-            if not db_user:
-                await update.message.reply_text(f"User {uid} not found.")
-                return
-            session = await get_session(uid)
-            active_order = "None"
-            if session:
-                num = session.get("number", "N/A")
-                dev_id = session.get("device_id", "N/A")
-                active_order = f"Number: {num} | Device: {dev_id}"
-
-            join_date = db_user.get("join_date", datetime.datetime.utcnow()).strftime("%d %b %Y")
-            uname = db_user.get("username") or ""
-            uname_str = f"@{uname}" if uname else "None"
-            text_out = (
-                f"👤 User Info\n\n"
-                f"🆔 User ID: {uid}\n"
-                f"👤 Name: {db_user.get('first_name', 'N/A')}\n"
-                f"📛 Username: {uname_str}\n"
-                f"💰 Balance: {format_balance(db_user.get('balance', 0))}\n"
-                f"📦 Active Order: {active_order}\n"
-                f"💸 Total Deposited: {format_balance(db_user.get('total_deposit', 0))}\n"
-                f"🛒 Total Spent: {format_balance(db_user.get('total_spent', 0))}\n"
-                f"🎁 Referral Earning: {format_balance(db_user.get('referral_earning', 0))}\n"
-                f"👥 Referrals: {db_user.get('total_referrals', 0)}\n"
-                f"🗓 Joined: {join_date}\n"
-                f"🚫 Banned: {'Yes' if db_user.get('banned') else 'No'}"
-            )
-            await update.message.reply_text(
-                text_out,
-                reply_markup=user_actions_keyboard(uid, db_user.get("banned", False))
-            )
+            await show_admin_user_info(update, context, uid, is_callback=False)
             context.user_data.pop("admin_action", None)
         except Exception as e:
             await update.message.reply_text(
                 f"Could not find user. Enter a plain numeric ID (e.g. 6928507193). Error: {e}"
             )
+
+    elif action == "set_streak":
+        try:
+            val = int(text)
+            target = context.user_data.get("target_user")
+            from database import db
+            await db.users.update_one({"user_id": target}, {"$set": {"gold_streak_weeks": val}})
+            context.user_data.pop("admin_action", None)
+            context.user_data.pop("target_user", None)
+            await update.message.reply_text(
+                f"✅ Set gold streak weeks to `{val}` for user `{target}`.",
+                reply_markup=admin_main_keyboard(),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Invalid number: {e}")
+
+    elif action == "set_weekly":
+        try:
+            val = int(text)
+            target = context.user_data.get("target_user")
+            from database import db
+            await db.users.update_one({"user_id": target}, {"$set": {"weekly_referrals": val}})
+            context.user_data.pop("admin_action", None)
+            context.user_data.pop("target_user", None)
+            await update.message.reply_text(
+                f"✅ Set weekly referrals count to `{val}` for user `{target}`.",
+                reply_markup=admin_main_keyboard(),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Invalid number: {e}")
+
+    elif action == "give_bonus":
+        try:
+            amount = float(text)
+            target = context.user_data.get("target_user")
+            from database import db
+            await db.users.update_one({"user_id": target}, {"$inc": {"balance": amount}})
+            context.user_data.pop("admin_action", None)
+            context.user_data.pop("target_user", None)
+            await update.message.reply_text(
+                f"✅ Credited ₹{amount:.2f} bonus to user `{target}` balance.",
+                reply_markup=admin_main_keyboard(),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Invalid amount: {e}")
 
     elif action == "add_balance":
         try:
@@ -4813,3 +4868,418 @@ async def diag_command(update, context):
     ]
     msg = "\n".join(lines)
     await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def show_admin_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, is_callback: bool = False):
+    from database import get_user, get_session, compute_referral_lock, db
+    from keyboards import user_actions_keyboard
+    from utils import format_balance
+    import datetime
+    
+    db_user = await get_user(user_id)
+    if not db_user:
+        if is_callback:
+            await update.callback_query.answer("User not found.", show_alert=True)
+        else:
+            await update.message.reply_text(f"User {user_id} not found.")
+        return
+        
+    session = await get_session(user_id)
+    active_order = "None"
+    if session:
+        num = session.get("number", "N/A")
+        dev_id = session.get("device_id", "N/A")
+        active_order = f"Number: {num} | Device: {dev_id}"
+        
+    referrer_id = db_user.get("referrer_id")
+    referrer_str = "None"
+    if referrer_id:
+        referrer_doc = await get_user(referrer_id)
+        if referrer_doc:
+            ref_name = referrer_doc.get("first_name") or "N/A"
+            referrer_str = f"{ref_name} (`{referrer_id}`)"
+        else:
+            referrer_str = f"`{referrer_id}`"
+            
+    weekly_refs = db_user.get("weekly_referrals", 0)
+    if weekly_refs >= 16:
+        tier_badge = "🥇 GOLD"
+    elif weekly_refs >= 6:
+        tier_badge = "🥈 SILVER"
+    elif weekly_refs >= 1:
+        tier_badge = "🥉 BRONZE"
+    else:
+        tier_badge = "None"
+        
+    gold_streak = db_user.get("gold_streak_weeks", 0)
+    
+    bal = float(db_user.get("balance", 0.0))
+    ref_earning = float(db_user.get("referral_earning", 0.0))
+    deposited = float(db_user.get("total_deposit", 0.0))
+    
+    locks = compute_referral_lock(ref_earning, deposited)
+    ref_usable = locks["usable"]
+    ref_locked = locks["locked"]
+    personal_dep = max(0.0, bal - ref_earning)
+    
+    referred_cursor = db.users.find({"referrer_id": user_id}).limit(5)
+    referred_users = await referred_cursor.to_list(None)
+    referred_str = "None"
+    if referred_users:
+        referred_str = ", ".join([f"{u.get('first_name', 'N/A')} (`{u['user_id']}`)" for u in referred_users])
+        
+    join_date = db_user.get("join_date", datetime.datetime.utcnow()).strftime("%d %b %Y")
+    uname = db_user.get("username") or ""
+    uname_str = f"@{uname}" if uname else "None"
+    
+    text_out = (
+        f"👤 *User Info*\n\n"
+        f"🆔 *User ID:* `{user_id}`\n"
+        f"👤 *Name:* {db_user.get('first_name', 'N/A')}\n"
+        f"📛 *Username:* {uname_str}\n"
+        f"🗓 *Joined:* {join_date}\n"
+        f"🚫 *Banned:* {'Yes' if db_user.get('banned') else 'No'}\n"
+        f"📦 *Active Order:* {active_order}\n\n"
+        f"💳 *BALANCE BREAKDOWN*\n"
+        f" ├ Total Balance: *{format_balance(bal)}*\n"
+        f" ├ Personal Deposit: *{format_balance(personal_dep)}*\n"
+        f" ├ Referral Earned: *{format_balance(ref_earning)}*\n"
+        f" ├ Referral Usable: *{format_balance(ref_usable)}*\n"
+        f" └ Referral Locked: *{format_balance(ref_locked)}*\n\n"
+        f"🎁 *REFERRAL STATS*\n"
+        f" ├ Referred By: {referrer_str}\n"
+        f" ├ Weekly Referrals: *{weekly_refs}* ({tier_badge})\n"
+        f" ├ Total Lifetime Referrals: *{db_user.get('total_referrals', 0)}*\n"
+        f" └ Gold Streak Weeks: *{gold_streak}*\n\n"
+        f"👥 *Team Preview (First 5):* {referred_str}"
+    )
+    
+    from telegram import InlineKeyboardMarkup
+    if is_callback:
+        await update.callback_query.edit_message_text(
+            text_out,
+            reply_markup=user_actions_keyboard(user_id, db_user.get("banned", False)),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            text_out,
+            reply_markup=user_actions_keyboard(user_id, db_user.get("banned", False)),
+            parse_mode="Markdown"
+        )
+
+
+async def send_feature_settings_screen(send_func, settings: dict):
+    from keyboards import admin_feature_settings_keyboard
+    
+    streak_enabled = settings.get("streak_bonus_enabled", True)
+    leaderboard_enabled = settings.get("leaderboard_enabled", True)
+    rem_thurs = settings.get("reminder_thursday_enabled", True)
+    rem_sun2h = settings.get("reminder_sunday_2hr_enabled", True)
+    rem_sun1h = settings.get("reminder_sunday_1hr_enabled", True)
+    welcome_enabled = settings.get("welcome_bonus_enabled", True)
+    hh_enabled = settings.get("happy_hours_enabled", False)
+    fake_guard = settings.get("fake_referral_guard_enabled", False)
+    trap_enabled = settings.get("trap_rule_enabled", True)
+    weekly_reset = settings.get("weekly_reset_enabled", True)
+    
+    bronze = settings.get("tier_bronze_amount", 5.0)
+    silver = settings.get("tier_silver_amount", 10.0)
+    gold = settings.get("tier_gold_amount", 15.0)
+    
+    fake_guard_status = "🟢 ON" if fake_guard else "🔴 OFF"
+    fake_guard_hours = settings.get("fake_referral_guard_hours", 48)
+    
+    trap_status = "🟢 ON" if trap_enabled else "🔴 OFF"
+    
+    streak_status = "🟢 ON" if streak_enabled else "🔴 OFF"
+    streak_weeks = settings.get("streak_weeks_required", 3)
+    streak_bonus = settings.get("streak_bonus_amount", 50.0)
+    
+    leaderboard_status = "🟢 ON" if leaderboard_enabled else "🔴 OFF"
+    prize1 = settings.get("leaderboard_prize_1", 100.0)
+    prize2 = settings.get("leaderboard_prize_2", 60.0)
+    prize3 = settings.get("leaderboard_prize_3", 30.0)
+    
+    hh_status = "🟢 ON" if hh_enabled else "🔴 OFF"
+    hh_start = settings.get("happy_hours_start", "18:00")
+    hh_end = settings.get("happy_hours_end", "20:00")
+    hh_pct = settings.get("happy_hours_bonus_pct", 10.0)
+    
+    welcome_status = "🟢 ON" if welcome_enabled else "🔴 OFF"
+    welcome_min = settings.get("welcome_bonus_min", 1)
+    welcome_max = settings.get("welcome_bonus_max", 5)
+    
+    weekly_reset_status = "🟢 ON" if weekly_reset else "🔴 OFF"
+    thursday_reminder_status = "🟢 ON" if rem_thurs else "🔴 OFF"
+    sunday_2hr_reminder_status = "🟢 ON" if rem_sun2h else "🔴 OFF"
+    sunday_1hr_reminder_status = "🟢 ON" if rem_sun1h else "🔴 OFF"
+    
+    text = (
+        f"💎 *Referral & Season Settings*\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 *Referral Tiers*\n"
+        f"Bronze: ₹{bronze:g} | Silver: ₹{silver:g} | Gold: ₹{gold:g}\n"
+        f"🛡️ Fake Guard: {fake_guard_status} ({fake_guard_hours}h)\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔒 *Trap Parity Rule*\n"
+        f"Status: {trap_status}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⭐ *Streak Bonus*\n"
+        f"Status: {streak_status}\n"
+        f"Weeks Req: {streak_weeks} | Bonus: ₹{streak_bonus:g}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🏆 *Weekly Leaderboard*\n"
+        f"Status: {leaderboard_status}\n"
+        f"Prizes: 1st: ₹{prize1:g} | 2nd: ₹{prize2:g} | 3rd: ₹{prize3:g}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚡ *Happy Hours*\n"
+        f"Status: {hh_status}\n"
+        f"Window: {hh_start} - {hh_end} | Bonus: {hh_pct:g}%\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎉 *New User Welcome*\n"
+        f"Status: {welcome_status}\n"
+        f"Range: ₹{welcome_min} - ₹{welcome_max}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔄 *Weekly Reset*\n"
+        f"Status: {weekly_reset_status}\n"
+        f"Reset Scheduled: Every Sunday 00:00 IST\n"
+        f"Thursday Reminder: {thursday_reminder_status}\n"
+        f"Sunday 2hr Reminder: {sunday_2hr_reminder_status}\n"
+        f"Sunday 1hr Reminder: {sunday_1hr_reminder_status}\n"
+    )
+    await send_func(text, reply_markup=admin_feature_settings_keyboard(settings), parse_mode="Markdown")
+
+
+async def admin_feature_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    settings = await get_settings()
+    await send_feature_settings_screen(query.edit_message_text, settings)
+
+
+async def admin_reset_ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    user_id = int(query.data.replace("admin_reset_ref_", ""))
+    db_user = await get_user(user_id)
+    if db_user:
+        ref_earning = float(db_user.get("referral_earning", 0.0))
+        from database import db
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"referral_earning": 0.0}, "$inc": {"balance": -ref_earning}}
+        )
+        await query.answer("Referral earning reset and balance updated!", show_alert=True)
+        await show_admin_user_info(update, context, user_id, is_callback=True)
+
+
+async def admin_unlock_locked_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    user_id = int(query.data.replace("admin_unlock_locked_", ""))
+    db_user = await get_user(user_id)
+    if db_user:
+        deposited = float(db_user.get("total_deposit", 0.0))
+        from database import db
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"referral_earning": deposited}}
+        )
+        await query.answer("Locked referral balance unlocked!", show_alert=True)
+        await show_admin_user_info(update, context, user_id, is_callback=True)
+
+
+async def admin_set_streak_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    user_id = int(query.data.replace("admin_set_streak_", ""))
+    context.user_data["admin_action"] = "set_streak"
+    context.user_data["target_user"] = user_id
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]])
+    await query.edit_message_text(
+        f"⭐ *Set Streak Weeks*\n\nEnter new gold streak weeks count for user `{user_id}`:",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def admin_set_weekly_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    user_id = int(query.data.replace("admin_set_weekly_", ""))
+    context.user_data["admin_action"] = "set_weekly"
+    context.user_data["target_user"] = user_id
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]])
+    await query.edit_message_text(
+        f"📊 *Set Weekly Referral Count*\n\nEnter new weekly referral count for user `{user_id}`:",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def admin_give_bonus_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    user_id = int(query.data.replace("admin_give_bonus_", ""))
+    context.user_data["admin_action"] = "give_bonus"
+    context.user_data["target_user"] = user_id
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]])
+    await query.edit_message_text(
+        f"🎁 *Give Bonus*\n\nEnter bonus amount to credit to user `{user_id}`'s balance:",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+# --- Toggle Callback Handlers ---
+async def toggle_setting_helper(query, key: str, default: bool = True):
+    settings = await get_settings()
+    current = settings.get(key, default)
+    await update_settings(key, not current)
+    await query.answer(f"{key} toggled to {not current}!", show_alert=True)
+
+
+async def toggle_streak_enabled_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "streak_bonus_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_leaderboard_enabled_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "leaderboard_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_rem_thurs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "reminder_thursday_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_rem_sun2h_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "reminder_sunday_2hr_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_rem_sun1h_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "reminder_sunday_1hr_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_welcome_enabled_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "welcome_bonus_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_hh_enabled_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "happy_hours_enabled", False)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_fake_guard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "fake_referral_guard_enabled", False)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_trap_rule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "trap_rule_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+async def toggle_weekly_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await toggle_setting_helper(query, "weekly_reset_enabled", True)
+    await admin_feature_settings_callback(update, context)
+
+
+# --- Suspicious Activity Callback Handlers ---
+async def admin_suspicious_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    
+    from database import get_pending_suspicious_flags
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    flags = await get_pending_suspicious_flags()
+    
+    if not flags:
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]])
+        await query.edit_message_text(
+            "🚨 *Suspicious Activity Flags*\n\nNo pending flags found.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+    
+    flag = flags[0]
+    flag_id = str(flag["_id"])
+    total = len(flags)
+    
+    text = (
+        f"🚨 *Suspicious Activity Flags* (1 of {total})\n\n"
+        f"👤 *New User ID:* `{flag['new_user_id']}`\n"
+        f"📱 *Device ID:* `{flag['device_id']}`\n"
+        f"📅 *Flagged At:* {flag['flagged_at'].strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
+        f"🔗 *Linked Accounts:* {len(flag['linked_user_ids'])}\n"
+        + "\n".join([f"• `{uid}`" for uid in flag['linked_user_ids']]) +
+        f"\n\nActions:"
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Ignore", callback_data=f"suspicious_ignore_{flag_id}"),
+            InlineKeyboardButton("🚫 Ban All on Device", callback_data=f"suspicious_ban_{flag_id}")
+        ],
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_back")]
+    ])
+    await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def suspicious_ignore_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("Unauthorized", show_alert=True)
+        return
+    
+    flag_id = query.data.replace("suspicious_ignore_", "")
+    from database import ignore_suspicious_flag
+    await ignore_suspicious_flag(flag_id)
+    await query.answer("Flag ignored!", show_alert=True)
+    await admin_suspicious_callback(update, context)
+
+
+async def suspicious_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("Unauthorized", show_alert=True)
+        return
+    
+    flag_id = query.data.replace("suspicious_ban_", "")
+    from database import ban_device_users_by_flag
+    await ban_device_users_by_flag(flag_id)
+    await query.answer("Banned all users on this device!", show_alert=True)
+    await admin_suspicious_callback(update, context)

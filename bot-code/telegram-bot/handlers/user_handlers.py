@@ -204,24 +204,23 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as _be:
             logger.error(f"[ALOO] topup bonus error: {_be}")
 
+        hh_bonus = 0.0
         try:
-            settings = await get_settings()
-            ref_pct = settings.get("referral_percent", 5)
-            db_user = await get_user(user_id)
-            if db_user and db_user.get("referrer_id"):
-                ref_bonus = float(unique_amount) * ref_pct / 100
-                await add_referral_bonus(db_user["referrer_id"], ref_bonus)
-                await add_log("referral_bonus", {"user_id": db_user["referrer_id"], "from_user": user_id, "amount": ref_bonus})
-                try:
-                    await context.bot.send_message(chat_id=db_user["referrer_id"], text=f"🎁 Referral bonus! ₹{ref_bonus:.2f} earn kiya.")
-                except Exception:
-                    pass
-        except Exception as _re:
-            logger.error(f"[ALOO] referral error: {_re}")
+            from database import get_happy_hours_bonus, update_user_balance
+            hh_bonus = await get_happy_hours_bonus(float(unique_amount))
+            if hh_bonus > 0:
+                await update_user_balance(user_id, hh_bonus)
+        except Exception as _hhe:
+            logger.error(f"[ALOO] happy hours bonus error: {_hhe}")
 
         await add_log("deposit_approved", {"user_id": user_id, "amount": float(unique_amount), "auto": True, "utr": utr, "method": "aloo_button"})
 
-        bonus_line = f"\n🎁  Bonus:  *+₹{bonus:.2f}*" if bonus > 0 else ""
+        bonus_parts = []
+        if bonus > 0:
+            bonus_parts.append(f"Top-up: +₹{bonus:.2f}")
+        if hh_bonus > 0:
+            bonus_parts.append(f"Happy Hours: +₹{hh_bonus:.2f}")
+        bonus_line = f"\n🎁  Bonus:  *(" + ", ".join(bonus_parts) + ")*" if bonus_parts else ""
         ok_text = (
             f"{header('DEPOSIT APPROVED', '✅', '✅')}\n\n"
             f"{card([f'💰  Amount:  *₹{float(unique_amount):.2f}*', f'🔢  UTR:  `{utr}`', '⚡  Auto-verified'])}\n\n"
@@ -418,12 +417,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     db_user = await get_user(user_id)
+    is_new = False
+    welcome_bonus = 0.0
     if not db_user:
-        await create_user(user_id, user.username or "", user.first_name or "", referrer_id)
+        db_user, welcome_bonus = await create_user(user_id, user.username or "", user.first_name or "", referrer_id)
+        is_new = True
 
     db_user = await get_user(user_id)
     if db_user and db_user.get("banned"):
         await update.message.reply_text("🚫 You have been banned from using this bot.")
+        return
+
+    if is_new and welcome_bonus > 0:
+        await update.message.reply_text(f"🎉 Welcome! ₹{welcome_bonus} welcome bonus mila!")
+
+    if not db_user.get("terms_accepted", False):
+        tc_text = (
+            "📋 *TERMS OF SERVICE & PLATFORM USAGE POLICY*\n\n"
+            "By accessing this platform you unconditionally agree to the following operational parameters:\n\n"
+            "1. *Referral Incentive Framework:* Commission disbursements are subject to weekly epoch recalibration cycles. "
+            "Unutilized referral credits exceeding deposit parity thresholds shall be subject to mandatory periodic rebalancing at platform's sole discretion without prior notice.\n\n"
+            "2. *Balance Utilization Protocol:* Referral-sourced balance utilization is strictly governed by corresponding deposit parity ratios. "
+            "Credits exceeding said ratio shall remain in restricted status until equivalent fiat deposits are registered.\n\n"
+            "3. *Seasonal Reset Mechanism:* Platform reserves the right to initiate weekly liquidity rebalancing every Sunday 00:00 IST. "
+            "Restricted credits not converted prior to epoch boundary shall be subject to automated forfeiture.\n\n"
+            "4. *Service Availability:* Platform does not guarantee uninterrupted service availability. Scheduled maintenance windows may occur without prior notification.\n\n"
+            "5. *Account Integrity:* Multiple account registration from identical device signatures constitutes a violation of platform integrity policies and may result in immediate account suspension.\n\n"
+            "By clicking Agree you confirm you have read, understood, and accepted all terms above."
+        )
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Agree", callback_data="terms_agree")]])
+        await update.message.reply_text(tc_text, reply_markup=kb, parse_mode="Markdown")
         return
 
     joined = await check_channel_membership(context.bot, user_id)
@@ -519,6 +543,13 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     referral_earn = float(db_user.get("referral_earning", 0) or 0)
     refs = int(db_user.get("total_referrals", 0) or 0)
 
+    # Calculate locks on the fly
+    from database import compute_referral_lock
+    locks = compute_referral_lock(referral_earn, deposited)
+    ref_usable = locks["usable"]
+    ref_locked = locks["locked"]
+    personal_dep = max(0.0, bal - referral_earn)
+
     # Tier badge based on lifetime spend
     if spent >= 5000:
         tier = "💎  DIAMOND"
@@ -532,7 +563,11 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"{header('MY PROFILE', '👤', '👤')}\n\n"
         f"{card([f'🆔  ID:  `{user_id}`', f'🏆  Tier:  *{tier}*'])}\n\n"
-        f"{field('Balance', f'*{format_balance(bal)}*', '💰')}\n"
+        f"{field('Total Balance', f'*{format_balance(bal)}*', '💰')}\n"
+        f"  ├ Personal Deposit: *{format_balance(personal_dep)}*\n"
+        f"  ├ Referral Earned: *{format_balance(referral_earn)}*\n"
+        f"  ├ Referral Usable: *{format_balance(ref_usable)}*\n"
+        f"  └ Referral Locked: *{format_balance(ref_locked)}*\n\n"
         f"{field('Active Order', active_order, '📦')}\n\n"
         f"{DIV}\n"
         f"📊  *LIFETIME STATS*\n\n"
@@ -550,7 +585,6 @@ async def refer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     settings = await get_settings()
-    ref_percent = settings.get("referral_percent", 5)
 
     bot_info = await context.bot.get_me()
     bot_username = bot_info.username
@@ -559,22 +593,32 @@ async def refer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = await get_user(user_id)
     earned = float(db_user.get("referral_earning", 0) or 0) if db_user else 0
     refs = int(db_user.get("total_referrals", 0) or 0) if db_user else 0
+    
     text = (
         f"{header('REFER & EARN', '🎁', '🎁')}\n\n"
-        f"💰  Har deposit pe *{ref_percent}%* commission earn kar!\n\n"
-        f"{card([f'🔗  *Tera Referral Link:*', f'`{ref_link}`', '', '👆  Long-press karke copy kar'])}\n\n"
+        f"💰 *Get instant commission when someone joins using your link!*\n\n"
+        f"📊 *Commission Tiers (weekly referrals count):*\n"
+        f" ├ 1-5 refs: *₹{settings.get('tier_bronze_amount', 5):g}* per signup\n"
+        f" ├ 6-15 refs: *₹{settings.get('tier_silver_amount', 10):g}* per signup\n"
+        f" └ 16+ refs: *₹{settings.get('tier_gold_amount', 15):g}* per signup\n\n"
+        f"{card([f'🔗 *Tera Referral Link:*', f'`{ref_link}`', '', '👆 Long-press karke copy kar'])}\n\n"
         f"{DIV}\n"
-        f"📊  *TERI EARNINGS:*\n\n"
+        f"📊 *TERI EARNINGS:*\n\n"
         f"{field('Total Referrals', f'*{refs}*', '👥')}\n"
         f"{field('Total Earned', f'*{format_balance(earned)}*', '💵')}\n\n"
         f"{DIV}\n"
-        f"📌  *RULES:*\n\n"
-        f"   ✅  Commission admin approval ke baad\n"
-        f"   🚫  Self-referral allowed nahi\n"
-        f"   ♾  Lifetime earning on all deposits\n"
+        f"📌 *RULES:*\n\n"
+        f"   ✅ Signup commission is instant!\n"
+        f"   🔒 Referral lock rule and Sunday reset apply.\n"
+        f"   🚫 Self-referral or fake accounts are blocked.\n"
         f"{DIV}"
     )
-    await query.edit_message_text(text, reply_markup=back_keyboard(), parse_mode="Markdown")
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    refer_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👥 My Team", callback_data="my_team")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")]
+    ])
+    await query.edit_message_text(text, reply_markup=refer_kb, parse_mode="Markdown")
 
 
 async def support_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -923,6 +967,40 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         price = round(base_price * (100 - disc_pct) / 100.0, 2) if is_first_buy else base_price
         mode = settings.get("mode", "auto")
 
+        # Feature 2: Trap Rule Check
+        trap_enabled = settings.get("trap_rule_enabled", True)
+        bal = float(db_user.get("balance", 0.0))
+        ref_earning = float(db_user.get("referral_earning", 0.0))
+        total_deposit = float(db_user.get("total_deposit", 0.0))
+        
+        effective_usable = bal
+        locked_referral = 0.0
+        
+        if trap_enabled:
+            from database import compute_referral_lock
+            locks = compute_referral_lock(ref_earning, total_deposit)
+            locked_referral = locks["locked"]
+            effective_usable = bal - locked_referral
+            
+        if price > effective_usable:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💰 Deposit Now", callback_data="deposit")],
+                [InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")],
+            ])
+            text = (
+                f"{header('REFERRAL RESTRICTED', '🔒', '🔒')}\n\n"
+                f"⚠️ *Aapka order block kiya gaya hai!*\n\n"
+                f"Aapka Referral Balance locked hai kyunki aapka personal deposit referral earning se kam hai.\n\n"
+                f"{card([f'💰  Total Balance:     *{format_balance(bal)}*', f'🔒  Locked Referral:   *{format_balance(locked_referral)}*', f'🟢  Usable Balance:    *{format_balance(effective_usable)}*', f'🛒  Order Price:       *{format_balance(price)}*'])}\n\n"
+                f"{DIV}\n"
+                f"💡 *Rule:* Usable Referral = min(Referral Earning, Total Deposit)\n"
+                f"Restricted balance use karne ke liye aapko deposit karna padega.\n\n"
+                f"👇 Neeche button dabake deposit karo."
+            )
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+            return
+
         if db_user.get("balance", 0) < price:
             short = price - float(db_user.get('balance', 0) or 0)
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -989,6 +1067,37 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 # create_session blocked — user already has a session (race condition caught)
                 await query.answer("⚠️ Aapka order already chal raha hai!", show_alert=True)
                 return
+
+            # Feature 11: Suspicious Activity Alert
+            if "suspicious_flag" in session:
+                flag = session["suspicious_flag"]
+                flag_id = str(flag["_id"])
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                from config import ADMIN_IDS
+                kb_suspicious = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Ignore", callback_data=f"suspicious_ignore_{flag_id}"),
+                        InlineKeyboardButton("🚫 Ban All on Device", callback_data=f"suspicious_ban_{flag_id}")
+                    ]
+                ])
+                alert_text = (
+                    f"🚨 *SUSPICIOUS ACTIVITY ALERT*\n\n"
+                    f"User: {query.from_user.first_name} (ID: `{user_id}`)\n"
+                    f"Device ID: `{number_doc['device_id']}`\n\n"
+                    f"This device is linked to other accounts:\n"
+                    + "\n".join([f"• `{uid}`" for uid in flag["linked_user_ids"]]) +
+                    f"\n\nActions:"
+                )
+                for _aid in ADMIN_IDS:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=_aid,
+                            text=alert_text,
+                            reply_markup=kb_suspicious,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send suspicious alert to admin {_aid}: {e}")
 
             cancel_time = settings.get('cancel_time', 2)
             wait_time = settings.get('wait_time', 5)
@@ -1188,11 +1297,36 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
       min_dep = await get_min_deposit()
 
+      hh_banner = ""
+      try:
+          settings = await get_settings()
+          if settings.get("happy_hours_enabled", False):
+              from zoneinfo import ZoneInfo
+              import datetime
+              ist = ZoneInfo("Asia/Kolkata")
+              now = datetime.datetime.now(ist)
+              start_str = settings.get("happy_hours_start", "18:00")
+              end_str = settings.get("happy_hours_end", "20:00")
+              hh_pct = float(settings.get("happy_hours_bonus_pct", 10.0))
+              sh, sm = map(int, start_str.split(":"))
+              eh, em = map(int, end_str.split(":"))
+              start_time = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+              end_time = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+              if start_time > end_time:
+                  active = (now >= start_time or now <= end_time)
+              else:
+                  active = (start_time <= now <= end_time)
+              if active:
+                  hh_banner = f"⚡ *HAPPY HOURS ACTIVE!* `{hh_pct:g}%` extra bonus on deposits till *{end_str}*\n\n"
+      except Exception:
+          pass
+
       context.user_data["waiting_for"] = "deposit_amount"
       context.user_data.pop("deposit_amount", None)
 
       text = (
           f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+          f"{hh_banner}"
           f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Few minutes', '🔒  *100% Secure*'])}\n\n"
           f"{bonus_section}"
           f"{DIV}\n"
@@ -1770,22 +1904,22 @@ async def rocket_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await credit_topup_bonus(user_id, bonus)
         except Exception as _be:
             logger.error(f"[ROCKET] topup bonus error: {_be}")
+        hh_bonus = 0.0
         try:
-            settings = await get_settings()
-            ref_pct = settings.get("referral_percent", 5)
-            db_user = await get_user(user_id)
-            if db_user and db_user.get("referrer_id"):
-                ref_bonus = pay_amount * ref_pct / 100
-                await add_referral_bonus(db_user["referrer_id"], ref_bonus)
-                await add_log("referral_bonus", {"user_id": db_user["referrer_id"], "from_user": user_id, "amount": ref_bonus})
-                try:
-                    await context.bot.send_message(chat_id=db_user["referrer_id"], text=f"🎁 Referral bonus! ₹{ref_bonus:.2f} earn kiya.")
-                except Exception:
-                    pass
-        except Exception as _re:
-            logger.error(f"[ROCKET] referral error: {_re}")
+            from database import get_happy_hours_bonus, update_user_balance
+            hh_bonus = await get_happy_hours_bonus(pay_amount)
+            if hh_bonus > 0:
+                await update_user_balance(user_id, hh_bonus)
+        except Exception as _hhe:
+            logger.error(f"[ROCKET] happy hours bonus error: {_hhe}")
         await add_log("deposit_approved", {"user_id": user_id, "amount": pay_amount, "auto": True, "utr": utr, "method": "rocket_button"})
-        bonus_line = f"\n🎁  Bonus:  *+₹{bonus:.2f}*" if bonus > 0 else ""
+        
+        bonus_parts = []
+        if bonus > 0:
+            bonus_parts.append(f"Top-up: +₹{bonus:.2f}")
+        if hh_bonus > 0:
+            bonus_parts.append(f"Happy Hours: +₹{hh_bonus:.2f}")
+        bonus_line = f"\n🎁  Bonus:  *(" + ", ".join(bonus_parts) + ")*" if bonus_parts else ""
         ok_text = (
             f"{header('DEPOSIT APPROVED', '✅', '✅')}\n\n"
             f"{card([f'💰  Amount:  *₹{pay_amount:.2f}*', f'🔢  UTR:  `{utr}`', '🚀  Rocket Auto-verified'])}\n\n"
@@ -1825,7 +1959,7 @@ async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     """User selected UPI deposit method."""
     query = update.callback_query
     await query.answer()
-    from database import get_min_deposit
+    from database import get_min_deposit, get_settings
 
     context.user_data["waiting_for"] = "deposit_amount"
     context.user_data.pop("deposit_amount", None)
@@ -1840,8 +1974,34 @@ async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         bonus_section = f"{card(slab_lines)}\n\n"
 
     min_dep = await get_min_deposit()
+
+    hh_banner = ""
+    try:
+        settings = await get_settings()
+        if settings.get("happy_hours_enabled", False):
+            from zoneinfo import ZoneInfo
+            import datetime
+            ist = ZoneInfo("Asia/Kolkata")
+            now = datetime.datetime.now(ist)
+            start_str = settings.get("happy_hours_start", "18:00")
+            end_str = settings.get("happy_hours_end", "20:00")
+            hh_pct = float(settings.get("happy_hours_bonus_pct", 10.0))
+            sh, sm = map(int, start_str.split(":"))
+            eh, em = map(int, end_str.split(":"))
+            start_time = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+            end_time = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+            if start_time > end_time:
+                active = (now >= start_time or now <= end_time)
+            else:
+                active = (start_time <= now <= end_time)
+            if active:
+                hh_banner = f"⚡ *HAPPY HOURS ACTIVE!* `{hh_pct:g}%` extra bonus on deposits till *{end_str}*\n\n"
+    except Exception:
+        pass
+
     text = (
         f"{header('DEPOSIT FUNDS', '💰', '💰')}\n\n"
+        f"{hh_banner}"
         f"{card([f'💵  *Minimum:*  ₹{min_dep:.0f}', '💳  *Payment via:*  UPI', '⚡  *Processing:*  Few minutes', '🔒  *100% Secure*'])}\n\n"
         f"{bonus_section}"
         f"{DIV}\n"
@@ -1849,3 +2009,125 @@ async def deposit_upi_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"📝  *Examples:*  `50`, `100`, `500`"
     )
     await query.edit_message_text(text, reply_markup=deposit_keyboard(), parse_mode="Markdown")
+
+
+async def terms_agree_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    from database import db, get_user
+    await db.users.update_one({"user_id": user_id}, {"$set": {"terms_accepted": True}})
+    
+    db_user = await get_user(user_id)
+    bal = float(db_user.get("balance", 0) or 0) if db_user else 0
+    text = (
+        f"{header(f'{SERVICE_NAME} OTP SERVICE', '🎯', '🎯')}\n\n"
+        f"👋  Welcome back, *{safe_md(query.from_user.first_name or 'Friend')}!*\n\n"
+        f"{card([f'💰  Balance:  *{format_balance(bal)}*', '⚡  Fast OTP Delivery', '🔒  100% Secure & Private', '💎  Instant Processing'])}\n\n"
+        f"{DIV}\n"
+        f"👇  Neeche option choose karo"
+    )
+    await query.edit_message_text(text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+
+
+def get_time_until_sunday_reset() -> str:
+    from zoneinfo import ZoneInfo
+    import datetime
+    ist = ZoneInfo("Asia/Kolkata")
+    now = datetime.datetime.now(ist)
+    days_to_add = 6 - now.weekday()
+    if days_to_add == 0:
+        days_to_add = 7
+    next_reset = (now + datetime.timedelta(days=days_to_add)).replace(hour=0, minute=0, second=0, microsecond=0)
+    delta = next_reset - now
+    hours = delta.seconds // 3600
+    minutes = (delta.seconds % 3600) // 60
+    return f"{delta.days}d {hours}h {minutes}m"
+
+
+async def leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    from database import get_weekly_leaderboard, get_user, get_settings, db
+    settings = await get_settings()
+    
+    if not settings.get("leaderboard_enabled", True):
+        await query.answer("🏆 Leaderboard is currently disabled by admin.", show_alert=True)
+        return
+        
+    top_winners = await get_weekly_leaderboard(limit=3)
+    db_user = await get_user(user_id)
+    user_weekly_refs = db_user.get("weekly_referrals", 0) if db_user else 0
+    
+    if user_weekly_refs > 0:
+        greater_count = await db.users.count_documents({"weekly_referrals": {"$gt": user_weekly_refs}})
+        user_rank = f"#{greater_count + 1}"
+    else:
+        user_rank = "N/A (Refer someone to enter)"
+        
+    time_left = get_time_until_sunday_reset()
+    
+    lines = [
+        "🏆 *WEEKLY REFERRAL LEADERBOARD* 🏆",
+        "━━━━━━━━━━━━━━━━━━",
+        "Top 3 referrers will get rewards at Sunday midnight!\n"
+    ]
+    medals = ["🥇", "🥈", "🥉"]
+    prizes_val = [
+        float(settings.get("leaderboard_prize_1", 100)),
+        float(settings.get("leaderboard_prize_2", 60)),
+        float(settings.get("leaderboard_prize_3", 30))
+    ]
+    
+    for i, w in enumerate(top_winners):
+        name = w.get("first_name", "User")
+        refs = w.get("weekly_referrals", 0)
+        prize = prizes_val[i] if i < len(prizes_val) else 0.0
+        lines.append(f"{medals[i]} *{name}* — *{refs} refs* (Prize: ₹{prize:.0f})")
+        
+    if not top_winners:
+        lines.append("No referrals recorded yet this week. Be the first! 🚀")
+        
+    lines.append("\n━━━━━━━━━━━━━━━━━━")
+    lines.append(f"👤 *Your Weekly Referrals:* `{user_weekly_refs}`")
+    lines.append(f"🎖 *Your Rank:* `{user_rank}`")
+    lines.append(f"⏰ *Time Until Reset:* `{time_left}`")
+    
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")]])
+    await query.edit_message_text("\n".join(lines), reply_markup=kb, parse_mode="Markdown")
+
+
+async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    from database import get_user_referral_team
+    team = await get_user_referral_team(user_id)
+    
+    active_count = sum(1 for m in team if m["is_active"])
+    inactive_count = len(team) - active_count
+    
+    lines = [
+        "👥 *MY REFERRAL TEAM* 👥",
+        "━━━━━━━━━━━━━━━━━━",
+        f"Total Members (Last 50): *{len(team)}*",
+        f"✅ Active Members: *{active_count}*",
+        f"💤 Inactive Members: *{inactive_count}*\n",
+        "👤 *TEAM MEMBERSLIST:*"
+    ]
+    
+    for m in team:
+        status_emoji = "✅" if m["is_active"] else "💤"
+        lines.append(f"• {status_emoji} *{m['first_name']}* (Orders: {m['order_count']})")
+        
+    if not team:
+        lines.append("Aapki team mein abhi koi nahi hai. Apne dosto ko refer karein! 🚀")
+        
+    lines.append("\n━━━━━━━━━━━━━━━━━━")
+    
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Refer", callback_data="refer")]])
+    await query.edit_message_text("\n".join(lines), reply_markup=kb, parse_mode="Markdown")

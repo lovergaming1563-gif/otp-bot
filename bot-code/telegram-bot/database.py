@@ -86,6 +86,7 @@ async def init_db():
         # TTL = 10 min (matches sms_verifier.CACHE_TTL_SECONDS).
         await db.sms_cache.create_index("utr", unique=True)
         await db.sms_cache.create_index("ts", expireAfterSeconds=600)
+        await db.suspicious_flags.create_index("status")
         # 🔔 One-time migration: enable alerts for existing per-bot docs that
         # were tracked before auto-enable existed (alert_enabled field absent).
         try:
@@ -152,6 +153,24 @@ async def get_user(user_id: int):
     return await db.users.find_one({"user_id": user_id})
 
 
+def compute_referral_lock(referral_earning: float, total_deposit: float) -> dict:
+    usable = min(float(referral_earning), float(total_deposit))
+    locked = max(0.0, float(referral_earning) - float(total_deposit))
+    return {"usable": usable, "locked": locked}
+
+
+def get_referral_tier_amount(weekly_refs: int, settings: dict) -> float:
+    bronze = float(settings.get("tier_bronze_amount", 5.0))
+    silver = float(settings.get("tier_silver_amount", 10.0))
+    gold = float(settings.get("tier_gold_amount", 15.0))
+    if weekly_refs >= 16:
+        return gold
+    elif weekly_refs >= 6:
+        return silver
+    else:
+        return bronze
+
+
 async def create_user(user_id: int, username: str, first_name: str, referrer_id: int = None):
     user = {
         "user_id": user_id,
@@ -166,11 +185,68 @@ async def create_user(user_id: int, username: str, first_name: str, referrer_id:
         "banned": False,
         "join_date": datetime.datetime.utcnow(),
         "active_session": None,
+        "weekly_referrals": 0,
+        "gold_streak_weeks": 0,
+        "last_season_tier": "",
+        "referral_bonus_hold": [],
+        "terms_accepted": False,
     }
     await db.users.insert_one(user)
+    
+    settings = await get_settings()
+    
     if referrer_id:
-        await db.users.update_one({"user_id": referrer_id}, {"$inc": {"total_referrals": 1}})
-    return user
+        referrer = await get_user(referrer_id)
+        if referrer:
+            weekly_refs = referrer.get("weekly_referrals", 0)
+            tier_amount = get_referral_tier_amount(weekly_refs, settings)
+            fake_guard = settings.get("fake_referral_guard_enabled", False)
+            
+            update_doc = {}
+            if not fake_guard:
+                update_doc["$inc"] = {
+                    "balance": tier_amount,
+                    "referral_earning": tier_amount,
+                    "weekly_referrals": 1,
+                    "total_referrals": 1
+                }
+            else:
+                update_doc["$inc"] = {
+                    "weekly_referrals": 1,
+                    "total_referrals": 1
+                }
+                hold_entry = {
+                    "amount": tier_amount,
+                    "new_user_id": user_id,
+                    "held_at": datetime.datetime.utcnow()
+                }
+                update_doc["$push"] = {
+                    "referral_bonus_hold": hold_entry
+                }
+            
+            await db.users.update_one({"user_id": referrer_id}, update_doc)
+            
+            # Send notification to referrer
+            if not fake_guard:
+                try:
+                    # Send message if bot is running (normally handled via handler but we don't have context here, 
+                    # so we will notify them in user start handler or from caller if possible, or try using Bot client if stored)
+                    pass
+                except Exception:
+                    pass
+
+    # Feature 8: Welcome Bonus
+    bonus_amount = 0.0
+    if settings.get("welcome_bonus_enabled", True):
+        import random
+        w_min = int(settings.get("welcome_bonus_min", 1))
+        w_max = int(settings.get("welcome_bonus_max", 5))
+        if w_min <= w_max:
+            bonus_amount = float(random.randint(w_min, w_max))
+            await db.users.update_one({"user_id": user_id}, {"$inc": {"balance": bonus_amount}})
+            user["balance"] = bonus_amount
+
+    return user, bonus_amount
 
 
 async def update_user_balance(user_id: int, amount: float):
@@ -1822,4 +1898,216 @@ async def get_sold_numbers_from_logs(service: str) -> list:
         {"number": 1, "device_id": 1}
     ).sort("created_at", -1).to_list(None)
     return [(d.get("number", ""), d.get("device_id", "")) for d in docs]
+
+
+async def get_user_referral_team(user_id: int) -> list:
+    members = await db.users.find({"referrer_id": user_id}).sort("join_date", -1).limit(50).to_list(None)
+    team = []
+    for m in members:
+        m_id = m["user_id"]
+        name = m.get("first_name", "User")
+        count = await db.logs.count_documents({"user_id": m_id, "type": "otp_delivered"})
+        is_active = (count > 0)
+        team.append({
+            "user_id": m_id,
+            "first_name": name,
+            "is_active": is_active,
+            "order_count": count
+        })
+    return team
+
+
+async def get_happy_hours_bonus(amount: float) -> float:
+    settings = await get_settings()
+    if not settings.get("happy_hours_enabled", False):
+        return 0.0
+    
+    from zoneinfo import ZoneInfo
+    import datetime
+    ist = ZoneInfo("Asia/Kolkata")
+    now = datetime.datetime.now(ist)
+    
+    start_str = settings.get("happy_hours_start", "18:00")
+    end_str = settings.get("happy_hours_end", "20:00")
+    pct = float(settings.get("happy_hours_bonus_pct", 10.0))
+    
+    try:
+        sh, sm = map(int, start_str.split(":"))
+        eh, em = map(int, end_str.split(":"))
+        start_time = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        end_time = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+        
+        if start_time > end_time:
+            active = (now >= start_time or now <= end_time)
+        else:
+            active = (start_time <= now <= end_time)
+            
+        if active:
+            return amount * (pct / 100.0)
+    except Exception as e:
+        print(f"[get_happy_hours_bonus] error: {e}")
+    return 0.0
+
+
+async def weekly_season_reset() -> list:
+    settings = await get_settings()
+    streak_req = int(settings.get("streak_weeks_required", 3))
+    streak_bonus = float(settings.get("streak_bonus_amount", 50))
+    streak_enabled = settings.get("streak_bonus_enabled", True)
+    
+    winners = []
+    users = await db.users.find({}).to_list(None)
+    
+    for u in users:
+        uid = u["user_id"]
+        weekly_refs = u.get("weekly_referrals", 0)
+        ref_earning = float(u.get("referral_earning", 0.0))
+        deposited = float(u.get("total_deposit", 0.0))
+        
+        # Calculate locked
+        locked = max(0.0, ref_earning - deposited)
+        
+        # Determine last season tier
+        if weekly_refs >= 16:
+            tier = "gold"
+        elif weekly_refs >= 6:
+            tier = "silver"
+        elif weekly_refs >= 1:
+            tier = "bronze"
+        else:
+            tier = ""
+            
+        # Handle streak
+        current_streak = u.get("gold_streak_weeks", 0)
+        new_streak = 0
+        streak_win = False
+        
+        if tier == "gold":
+            new_streak = current_streak + 1
+        else:
+            new_streak = 0
+            
+        bonus_to_add = 0.0
+        if streak_enabled and new_streak >= streak_req:
+            bonus_to_add = streak_bonus
+            new_streak = 0  # reset after winning
+            streak_win = True
+            winners.append({"user_id": uid, "amount": streak_bonus})
+            
+        # Build update document
+        update_set = {
+            "weekly_referrals": 0,
+            "last_season_tier": tier,
+            "gold_streak_weeks": new_streak
+        }
+        
+        update_inc = {}
+        if locked > 0:
+            update_inc["balance"] = -locked
+            update_inc["referral_earning"] = -locked
+            
+        if bonus_to_add > 0:
+            update_inc["balance"] = update_inc.get("balance", 0.0) + bonus_to_add
+            
+        update_doc = {"$set": update_set}
+        if update_inc:
+            update_doc["$inc"] = update_inc
+            
+        await db.users.update_one({"user_id": uid}, update_doc)
+        
+    return winners
+
+
+async def get_weekly_leaderboard(limit: int = 3) -> list:
+    cursor = db.users.find({"weekly_referrals": {"$gt": 0}}).sort("weekly_referrals", -1).limit(limit)
+    return await cursor.to_list(None)
+
+
+async def award_leaderboard_prizes(winners: list, prizes: list):
+    for i, winner in enumerate(winners):
+        if i < len(prizes):
+            prize_amount = prizes[i]
+            if prize_amount > 0:
+                await db.users.update_one(
+                    {"user_id": winner["user_id"]},
+                    {"$inc": {"balance": prize_amount}}
+                )
+
+
+async def release_pending_referral_holds(guard_hours: float = 48.0) -> int:
+    import datetime
+    now = datetime.datetime.utcnow()
+    released_count = 0
+    
+    cursor = db.users.find({"referral_bonus_hold": {"$exists": True, "$ne": []}})
+    async for u in cursor:
+        uid = u["user_id"]
+        holds = u.get("referral_bonus_hold", [])
+        
+        to_release_amount = 0.0
+        remaining_holds = []
+        
+        for hold in holds:
+            held_at = hold.get("held_at")
+            if isinstance(held_at, datetime.datetime):
+                age_hours = (now - held_at).total_seconds() / 3600.0
+                if age_hours >= guard_hours:
+                    to_release_amount += float(hold.get("amount", 0.0))
+                else:
+                    remaining_holds.append(hold)
+            else:
+                to_release_amount += float(hold.get("amount", 0.0))
+                
+        if to_release_amount > 0:
+            await db.users.update_one(
+                {"user_id": uid},
+                {
+                    "$inc": {
+                        "balance": to_release_amount,
+                        "referral_earning": to_release_amount
+                    },
+                    "$set": {
+                        "referral_bonus_hold": remaining_holds
+                    }
+                }
+            )
+            released_count += 1
+            
+    return released_count
+
+
+async def check_suspicious_device(user_id: int, device_id: str) -> list:
+    if not device_id:
+        return []
+    cursor = db.sessions.find({"device_id": device_id, "user_id": {"$ne": user_id}})
+    unique_uids = set()
+    async for doc in cursor:
+        uid = doc.get("user_id")
+        if uid:
+            unique_uids.add(uid)
+    return list(unique_uids)
+
+
+async def get_pending_suspicious_flags():
+    return await db.suspicious_flags.find({"status": "pending"}).to_list(None)
+
+
+async def get_suspicious_flag(flag_id: str):
+    from bson import ObjectId
+    return await db.suspicious_flags.find_one({"_id": ObjectId(flag_id)})
+
+
+async def ignore_suspicious_flag(flag_id: str):
+    from bson import ObjectId
+    await db.suspicious_flags.update_one({"_id": ObjectId(flag_id)}, {"$set": {"status": "ignored"}})
+
+
+async def ban_device_users_by_flag(flag_id: str):
+    from bson import ObjectId
+    flag = await db.suspicious_flags.find_one({"_id": ObjectId(flag_id)})
+    if flag:
+        await ban_user(flag["new_user_id"])
+        for uid in flag.get("linked_user_ids", []):
+            await ban_user(uid)
+        await db.suspicious_flags.update_one({"_id": ObjectId(flag_id)}, {"$set": {"status": "banned_all"}})
 
