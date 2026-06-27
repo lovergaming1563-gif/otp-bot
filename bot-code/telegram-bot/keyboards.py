@@ -365,8 +365,21 @@ def reset_stats_confirm_keyboard():
 
 
 def admin_stock_keyboard(services: list = None, summary: dict = None):
-    """Shows per-service stock buttons if services provided, else generic."""
     keyboard = []
+    # Action buttons FIRST (always visible)
+    keyboard.append([
+        InlineKeyboardButton("📦 Bulk Add (Multi)", callback_data="bulk_add_start"),
+        InlineKeyboardButton("🧹 Bulk Clear (Multi)", callback_data="bulk_clear_start"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("🧹 Clear All Stock", callback_data="stock_clear_all"),
+        InlineKeyboardButton("🗑 Smart Remove", callback_data="smart_remove"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("📊 Sold OTPs", callback_data="admin_sold_otp"),
+        InlineKeyboardButton("🔙 Back", callback_data="admin_back"),
+    ])
+    # Service buttons below (may be cut off by Telegram's 100-button limit but actions are safe)
     if services:
         for s in services:
             name = s["name"]
@@ -378,16 +391,6 @@ def admin_stock_keyboard(services: list = None, summary: dict = None):
                     callback_data=f"stock_svc_{name}"
                 )
             ])
-    keyboard.append([
-        InlineKeyboardButton("📦 Bulk Add (Multi)", callback_data="bulk_add_start"),
-        InlineKeyboardButton("🧹 Bulk Clear (Multi)", callback_data="bulk_clear_start"),
-    ])
-    keyboard.append([InlineKeyboardButton("🧹 Clear All Stock", callback_data="stock_clear_all")])
-    keyboard.append([
-        InlineKeyboardButton("🗑 Smart Remove", callback_data="smart_remove"),
-        InlineKeyboardButton("📊 Sold OTPs", callback_data="admin_sold_otp"),
-    ])
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="admin_back")])
     return InlineKeyboardMarkup(keyboard)
 
 
