@@ -1521,21 +1521,45 @@ async def handle_admin_txt_file(update, context):
         if not service:
             await wait.edit_text("❌ Service select nahi ki. Phir se try karo.", parse_mode="Markdown")
             return
-        added, dupes, errors = 0, 0, 0
+        
+        parsed = []
+        errors = 0
         for line in lines:
             parts = [p.strip() for p in line.split("|")]
             if len(parts) != 2 or not parts[0] or not parts[1]:
                 errors += 1
                 continue
-            number, device_id = parts[0], parts[1]
+            parsed.append((parts[0], parts[1].strip().lower()))
+
+        added, dupes = 0, 0
+        if parsed:
+            import datetime
+            from database import db, _cache_bump
+            from pymongo.errors import BulkWriteError
+            docs = [{
+                "number": num,
+                "device_id": did,
+                "service": service,
+                "status": "available",
+                "added_at": datetime.datetime.utcnow()
+            } for num, did in parsed]
+            
             try:
-                result = await add_stock(number, device_id, service)
-                if result == "duplicate":
-                    dupes += 1
-                else:
-                    added += 1
+                await db.stock.insert_many(docs, ordered=False)
+                added = len(docs)
+                _cache_bump("stock")
+            except BulkWriteError as bwe:
+                failed_indices = {e['index'] for e in bwe.details.get('writeErrors', [])}
+                for e in bwe.details.get('writeErrors', []):
+                    if e.get('code') == 11000:
+                        dupes += 1
+                    else:
+                        errors += 1
+                added = len(docs) - len(failed_indices)
+                _cache_bump("stock")
             except Exception:
-                errors += 1
+                errors += len(docs)
+
         context.user_data.pop("admin_action", None)
         context.user_data.pop("stock_service", None)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Stock", callback_data=f"stock_svc_{service}")]])
@@ -1543,7 +1567,7 @@ async def handle_admin_txt_file(update, context):
             f"📦 *Stock Add Done — {service}*\n\n"
             f"✅ Added: *{added}*\n"
             f"⚠️ Already in stock: *{dupes}*\n"
-            f"❌ Invalid lines: *{errors}*\n"
+            f"❌ Invalid lines/errors: *{errors}*\n"
             f"📄 Total lines: *{len(lines)}*",
             reply_markup=kb,
             parse_mode="Markdown"
@@ -1590,20 +1614,46 @@ async def handle_admin_txt_file(update, context):
             if not number or not device_id:
                 skipped.append(f"`{line[:30]}` — empty field")
                 continue
-            parsed.append((number, device_id))
+            parsed.append((number, device_id.strip().lower()))
+
         per_svc_added = {n: 0 for n in selected}
         per_svc_failed = {n: 0 for n in selected}
-        for number, device_id in parsed:
-            for svc in selected:
-                try:
-                    await add_stock(number, device_id, svc)
-                    per_svc_added[svc] += 1
-                except Exception as _e:
-                    _es = str(_e)
-                    if "E11000" in _es or "duplicate key" in _es.lower():
-                        pass
+
+        if parsed:
+            import datetime
+            from database import db, _cache_bump
+            from pymongo.errors import BulkWriteError
+            
+            docs = []
+            for number, device_id in parsed:
+                for svc in selected:
+                    docs.append({
+                        "number": number,
+                        "device_id": device_id,
+                        "service": svc,
+                        "status": "available",
+                        "added_at": datetime.datetime.utcnow()
+                    })
+
+            try:
+                await db.stock.insert_many(docs, ordered=False)
+                for d in docs:
+                    per_svc_added[d["service"]] += 1
+                _cache_bump("stock")
+            except BulkWriteError as bwe:
+                failed_indices = {e['index'] for e in bwe.details.get('writeErrors', [])}
+                for idx, d in enumerate(docs):
+                    if idx in failed_indices:
+                        err = next(e for e in bwe.details['writeErrors'] if e['index'] == idx)
+                        if err.get('code') != 11000:
+                            per_svc_failed[d["service"]] += 1
                     else:
-                        per_svc_failed[svc] += 1
+                        per_svc_added[d["service"]] += 1
+                _cache_bump("stock")
+            except Exception:
+                for d in docs:
+                    per_svc_failed[d["service"]] += 1
+
         context.user_data.pop("admin_action", None)
         context.user_data["bulk_add_selected"] = set()
         total_ok = sum(per_svc_added.values())
@@ -2263,7 +2313,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "add_stock":
         service = context.user_data.get("stock_service", "Myntra")
         lines = [l.strip() for l in text.splitlines() if l.strip()]
-        added = []
+        parsed = []
         skipped = []
         for line in lines:
             if "|" not in line:
@@ -2275,15 +2325,41 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not number or not device_id:
                 skipped.append(f"`{line[:30]}` — empty field")
                 continue
+            parsed.append((number, device_id.strip().lower()))
+
+        added = []
+        if parsed:
+            import datetime
+            from database import db, _cache_bump
+            from pymongo.errors import BulkWriteError
+            docs = [{
+                "number": num,
+                "device_id": did,
+                "service": service,
+                "status": "available",
+                "added_at": datetime.datetime.utcnow()
+            } for num, did in parsed]
+            
             try:
-                await add_stock(number, device_id, service)
-                added.append(f"`{number}`")
+                await db.stock.insert_many(docs, ordered=False)
+                for num, did in parsed:
+                    added.append(f"`{num}`")
+                _cache_bump("stock")
+            except BulkWriteError as bwe:
+                failed_indices = {e['index'] for e in bwe.details.get('writeErrors', [])}
+                for idx, d in enumerate(docs):
+                    if idx in failed_indices:
+                        err = next(e for e in bwe.details['writeErrors'] if e['index'] == idx)
+                        if err.get('code') == 11000:
+                            skipped.append(f"`{d['number']}` — already in stock")
+                        else:
+                            skipped.append(f"`{d['number']}` — error code {err.get('code')}")
+                    else:
+                        added.append(f"`{d['number']}`")
+                _cache_bump("stock")
             except Exception as e:
-                err = str(e)
-                if "E11000" in err or "duplicate key" in err.lower():
-                    skipped.append(f"`{number}` — already in stock")
-                else:
-                    skipped.append(f"`{number}` — {err[:40]}")
+                for num, did in parsed:
+                    skipped.append(f"`{num}` — {str(e)[:40]}")
 
         context.user_data.pop("admin_action", None)
         msg = f"📦 *{service} Stock Update*\n\n✅ Added {len(added)}: {', '.join(added) if added else 'none'}\n"
@@ -4614,20 +4690,46 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not number or not device_id:
                 skipped.append(f"`{line[:30]}` — empty field")
                 continue
-            parsed.append((number, device_id))
+            parsed.append((number, device_id.strip().lower()))
+
         per_svc_added = {n: 0 for n in selected}
         per_svc_failed = {n: 0 for n in selected}
-        for number, device_id in parsed:
-            for svc in selected:
-                try:
-                    await add_stock(number, device_id, svc)
-                    per_svc_added[svc] += 1
-                except Exception as _e:
-                    _es = str(_e)
-                    if "E11000" in _es or "duplicate key" in _es.lower():
-                        pass  # already in stock — skip silently
+
+        if parsed:
+            import datetime
+            from database import db, _cache_bump
+            from pymongo.errors import BulkWriteError
+            
+            docs = []
+            for number, device_id in parsed:
+                for svc in selected:
+                    docs.append({
+                        "number": number,
+                        "device_id": device_id,
+                        "service": svc,
+                        "status": "available",
+                        "added_at": datetime.datetime.utcnow()
+                    })
+
+            try:
+                await db.stock.insert_many(docs, ordered=False)
+                for d in docs:
+                    per_svc_added[d["service"]] += 1
+                _cache_bump("stock")
+            except BulkWriteError as bwe:
+                failed_indices = {e['index'] for e in bwe.details.get('writeErrors', [])}
+                for idx, d in enumerate(docs):
+                    if idx in failed_indices:
+                        err = next(e for e in bwe.details['writeErrors'] if e['index'] == idx)
+                        if err.get('code') != 11000:
+                            per_svc_failed[d["service"]] += 1
                     else:
-                        per_svc_failed[svc] += 1
+                        per_svc_added[d["service"]] += 1
+                _cache_bump("stock")
+            except Exception:
+                for d in docs:
+                    per_svc_failed[d["service"]] += 1
+
         context.user_data.pop("admin_action", None)
         context.user_data["bulk_add_selected"] = set()
         total_ok = sum(per_svc_added.values())
