@@ -507,9 +507,30 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+    from utils import check_important_channel
+    from config import IMPORTANT_CHANNEL_URL
+    in_channel = await check_important_channel(context.bot, user_id)
+    if not in_channel:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+        ])
+        text = (
+            "⚠️ *Access Restricted!*\n\n"
+            "Bot use karne ke liye aapko hamare main channel mein rehna zaroori hai.\n\n"
+            "👇 Join karo aur phir check karo:"
+        )
+        try:
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            await query.answer("⚠️ Pehle important channel join karo!", show_alert=True)
+        return
+
     context.user_data.pop("waiting_for", None)
     context.user_data.pop("deposit_amount", None)
-    db_user = await get_user(query.from_user.id)
+    db_user = await get_user(user_id)
     bal = float(db_user.get("balance", 0) or 0) if db_user else 0
     text = (
         f"{header(f'{SERVICE_NAME} OTP SERVICE', '🎯', '🎯')}\n\n"
@@ -525,6 +546,26 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    from utils import check_important_channel
+    from config import IMPORTANT_CHANNEL_URL
+    in_channel = await check_important_channel(context.bot, user_id)
+    if not in_channel:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+        ])
+        text = (
+            "⚠️ *Access Restricted!*\n\n"
+            "Bot use karne ke liye aapko hamare main channel mein rehna zaroori hai.\n\n"
+            "👇 Join karo aur phir check karo:"
+        )
+        try:
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            await query.answer("⚠️ Pehle important channel join karo!", show_alert=True)
+        return
+
     db_user = await get_user(user_id)
     if not db_user:
         await query.edit_message_text("❌ User not found.", reply_markup=back_keyboard())
@@ -584,6 +625,26 @@ async def refer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    from utils import check_important_channel
+    from config import IMPORTANT_CHANNEL_URL
+    in_channel = await check_important_channel(context.bot, user_id)
+    if not in_channel:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+        ])
+        text = (
+            "⚠️ *Access Restricted!*\n\n"
+            "Bot use karne ke liye aapko hamare main channel mein rehna zaroori hai.\n\n"
+            "👇 Join karo aur phir check karo:"
+        )
+        try:
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            await query.answer("⚠️ Pehle important channel join karo!", show_alert=True)
+        return
+
     settings = await get_settings()
 
     bot_info = await context.bot.get_me()
@@ -721,7 +782,28 @@ async def _render_history(query, user_id: int, days=None, service=None, active_k
 async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await _render_history(query, query.from_user.id, days=None, service=None, active_key="all")
+    user_id = query.from_user.id
+    from utils import check_important_channel
+    from config import IMPORTANT_CHANNEL_URL
+    in_channel = await check_important_channel(context.bot, user_id)
+    if not in_channel:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+        ])
+        text = (
+            "⚠️ *Access Restricted!*\n\n"
+            "Bot use karne ke liye aapko hamare main channel mein rehna zaroori hai.\n\n"
+            "👇 Join karo aur phir check karo:"
+        )
+        try:
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            await query.answer("⚠️ Pehle important channel join karo!", show_alert=True)
+        return
+
+    await _render_history(query, user_id, days=None, service=None, active_key="all")
 
 
 async def history_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -762,6 +844,25 @@ async def buy_otp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    from utils import check_important_channel
+    from config import IMPORTANT_CHANNEL_URL
+    in_channel = await check_important_channel(context.bot, user_id)
+    if not in_channel:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+        ])
+        text = (
+            "⚠️ *Access Restricted!*\n\n"
+            "Bot use karne ke liye aapko hamare main channel mein rehna zaroori hai.\n\n"
+            "👇 Join karo aur phir check karo:"
+        )
+        try:
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            await query.answer("⚠️ Pehle important channel join karo!", show_alert=True)
+        return
 
     # 🚀 Parallelize all independent reads (5 queries → 1 RTT)
     db_user, existing_session, settings, services, favorites, fs = await asyncio.gather(
@@ -1282,6 +1383,26 @@ async def auto_cancel_expired(context: ContextTypes.DEFAULT_TYPE):
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       query = update.callback_query
       await query.answer()
+      user_id = query.from_user.id
+      from utils import check_important_channel
+      from config import IMPORTANT_CHANNEL_URL
+      in_channel = await check_important_channel(context.bot, user_id)
+      if not in_channel:
+          from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+          kb = InlineKeyboardMarkup([
+              [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+              [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+          ])
+          text = (
+              "⚠️ *Access Restricted!*\n\n"
+              "Bot use karne ke liye aapko hamare main channel mein rehna zaroori hai.\n\n"
+              "👇 Join karo aur phir check karo:"
+          )
+          try:
+              await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+          except Exception:
+              await query.answer("⚠️ Pehle important channel join karo!", show_alert=True)
+          return
       import os
       from config import QR_CODE_FILE
       from database import get_min_deposit, get_settings
@@ -2131,3 +2252,30 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Refer", callback_data="refer")]])
     await query.edit_message_text("\n".join(lines), reply_markup=kb, parse_mode="Markdown")
+
+
+async def check_important_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    from utils import check_important_channel
+    from config import IMPORTANT_CHANNEL_URL
+    
+    in_channel = await check_important_channel(context.bot, user_id)
+    if not in_channel:
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Important Channel", url=IMPORTANT_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Joined — Check Karo", callback_data="check_important_join")]
+        ])
+        await query.edit_message_text(
+            "❌ *Abhi bhi join nahi kiya!*\n\nChannel join karo phir check karo.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    else:
+        await query.edit_message_text(
+            "✅ *Channel joined!*\n\nAb bot use kar sakte ho.",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown"
+        )

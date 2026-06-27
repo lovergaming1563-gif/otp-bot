@@ -8,16 +8,38 @@ ADMIN_IDS = [int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip().lstr
 
 MONGODB_URL = os.environ.get("MONGODB_URL", "")
 
-_ch1 = os.environ.get("CHANNEL_1", "")
-CHANNEL_1 = int(_ch1) if _ch1.lstrip("-").isdigit() else None
-_ch2 = os.environ.get("CHANNEL_2", "")
-CHANNEL_2 = int(_ch2) if _ch2.lstrip("-").isdigit() else None
-
-CHANNEL_USERNAME_1 = os.environ.get("CHANNEL_USERNAME_1", "")
-CHANNEL_USERNAME_2 = os.environ.get("CHANNEL_USERNAME_2", "")
-
-# CHANNELS list used by keyboards.py and utils.py
-CHANNELS = [ch for ch in [CHANNEL_1, CHANNEL_2] if ch is not None]
+# Channel IDs for private channels (set these as env vars on your server)
+_ch1_id = os.environ.get("CHANNEL_1_ID", "")
+_ch2_id = os.environ.get("CHANNEL_2_ID", "")
+CHANNELS = [
+    {
+        "id": int(_ch1_id) if _ch1_id.lstrip("-").isdigit() else None,
+        "username": "",
+        "url": "https://t.me/+dwOX61hgVdUzYTE1",
+        "name": "Channel 1"
+    },
+    {
+        "id": int(_ch2_id) if _ch2_id.lstrip("-").isdigit() else None,
+        "username": "",
+        "url": "https://t.me/+OnJsUcXtvoRkMjg9",
+        "name": "Channel 2"
+    },
+    {
+        "id": None,
+        "username": "@withoutanyinvestmentwork",
+        "url": "https://t.me/withoutanyinvestmentwork",
+        "name": "Channel 3"
+    },
+    {
+        "id": None,
+        "username": "@OtpServiceXOfficial",
+        "url": "https://t.me/OtpServiceXOfficial",
+        "name": "Channel 4"
+    },
+]
+# The most important channel — user is force-checked on every interaction
+IMPORTANT_CHANNEL_USERNAME = "@withoutanyinvestmentwork"
+IMPORTANT_CHANNEL_URL = "https://t.me/withoutanyinvestmentwork"
 
 UPI_ID = os.environ.get("UPI_ID", "BHARATPE.8B0L1T2H8C56136@fbpe")
 

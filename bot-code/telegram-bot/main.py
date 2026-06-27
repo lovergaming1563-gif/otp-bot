@@ -20,6 +20,7 @@ from handlers.user_handlers import (
     pay_aloo_callback, pay_rocket_callback, rocket_paid_handler,
     service_request_callback,
     terms_agree_callback, leaderboard_callback, team_callback,
+    check_important_join_callback,
 )
 from handlers.admin_handlers import (
     admin_command, admin_back_callback, admin_stats_callback,
@@ -989,6 +990,7 @@ def main():
     app.add_handler(CallbackQueryHandler(terms_agree_callback, pattern="^terms_agree$"))
     app.add_handler(CallbackQueryHandler(leaderboard_callback, pattern="^leaderboard$"))
     app.add_handler(CallbackQueryHandler(team_callback, pattern="^my_team$"))
+    app.add_handler(CallbackQueryHandler(check_important_join_callback, pattern="^check_important_join$"))
     
     app.add_handler(CallbackQueryHandler(admin_feature_settings_callback, pattern="^admin_feature_settings$"))
     app.add_handler(CallbackQueryHandler(admin_reset_ref_callback, pattern="^admin_reset_ref_"))

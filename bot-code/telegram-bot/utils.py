@@ -20,6 +20,20 @@ async def check_channel_membership(bot: Bot, user_id: int) -> bool:
     return True
 
 
+async def check_important_channel(bot: Bot, user_id: int) -> bool:
+    """Check ONLY the important channel membership."""
+    from config import IMPORTANT_CHANNEL_USERNAME
+    try:
+        member = await bot.get_chat_member(
+            chat_id=IMPORTANT_CHANNEL_USERNAME,
+            user_id=user_id
+        )
+        return member.status not in ("left", "kicked", "banned")
+    except TelegramError:
+        return True  # If check fails, don't block user
+
+
+
 def format_balance(amount: float) -> str:
     return f"₹{amount:.2f}"
 
