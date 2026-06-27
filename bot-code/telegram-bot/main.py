@@ -89,6 +89,7 @@ from handlers.admin_handlers import (
     toggle_welcome_enabled_callback, toggle_hh_enabled_callback,
     toggle_fake_guard_callback, toggle_trap_rule_callback, toggle_weekly_reset_callback,
     admin_suspicious_callback, suspicious_ignore_handler, suspicious_ban_handler,
+    import_services_command,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -784,6 +785,7 @@ def main():
     app.add_handler(CommandHandler("approve", approve_balance_command))
     app.add_handler(CommandHandler("health", health_command))
     app.add_handler(CommandHandler("diag", diag_command))
+    app.add_handler(CommandHandler("import_services", import_services_command))
 
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
