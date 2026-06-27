@@ -512,12 +512,8 @@ async def sunday_reset_job(context: ContextTypes.DEFAULT_TYPE):
     from database import get_settings, get_weekly_leaderboard, award_leaderboard_prizes, weekly_season_reset, get_all_users
     
     settings = await get_settings()
-    if not settings.get("weekly_reset_enabled", True):
-        logger.info("[RESET] Weekly reset is disabled by admin setting.")
-        return
-        
-    logger.info("[RESET] Starting weekly season reset...")
     
+    # 2. Run leaderboard: get winners, award prizes, notify winners, broadcast results
     leaderboard_enabled = settings.get("leaderboard_enabled", True)
     winners = []
     if leaderboard_enabled:
@@ -530,19 +526,6 @@ async def sunday_reset_job(context: ContextTypes.DEFAULT_TYPE):
         await award_leaderboard_prizes(winners, prizes)
         logger.info(f"[RESET] Awarded leaderboard prizes to {len(winners)} users.")
         
-    streak_winners = await weekly_season_reset()
-    logger.info(f"[RESET] Weekly reset database operations completed. Streak winners: {len(streak_winners)}")
-    
-    for sw in streak_winners:
-        try:
-            await context.bot.send_message(
-                chat_id=sw["user_id"],
-                text=f"🎉 *CONGRATULATIONS!*\n\nAapne Gold streak maintain ki aur aapko *₹{sw['amount']:.0f}* streak bonus mila! Keep it up! 🚀",
-                parse_mode="Markdown"
-            )
-        except Exception as ne:
-            logger.warning(f"Could not notify streak winner {sw['user_id']}: {ne}")
-            
     if leaderboard_enabled and winners:
         lines = [
             "🏆 *WEEKLY LEADERBOARD WINNERS* 🏆",
@@ -572,6 +555,29 @@ async def sunday_reset_job(context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=u["user_id"], text=broadcast_text, parse_mode="Markdown")
             except Exception:
                 pass
+
+    # 3. THEN check weekly_reset_enabled — if False, return here
+    if not settings.get("weekly_reset_enabled", True):
+        logger.info("[RESET] Weekly reset is disabled by admin setting.")
+        return
+        
+    # 4. Run weekly_season_reset()
+    logger.info("[RESET] Starting weekly season reset...")
+    streak_winners = await weekly_season_reset()
+    
+    # 6. Log completion
+    logger.info(f"[RESET] Weekly reset database operations completed. Streak winners: {len(streak_winners)}")
+    
+    # 5. Notify streak bonus winners
+    for sw in streak_winners:
+        try:
+            await context.bot.send_message(
+                chat_id=sw["user_id"],
+                text=f"🎉 *CONGRATULATIONS!*\n\nAapne Gold streak maintain ki aur aapko *₹{sw['amount']:.0f}* streak bonus mila! Keep it up! 🚀",
+                parse_mode="Markdown"
+            )
+        except Exception as ne:
+            logger.warning(f"Could not notify streak winner {sw['user_id']}: {ne}")
 
 
 async def release_holds_job(context: ContextTypes.DEFAULT_TYPE):

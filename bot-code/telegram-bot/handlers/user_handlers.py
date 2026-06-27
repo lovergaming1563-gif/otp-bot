@@ -176,7 +176,7 @@ async def i_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         from database import (
             auto_approve_deposit_with_utr, is_utr_used, get_settings,
-            get_user, add_referral_bonus, add_log,
+            get_user, add_log,
             compute_topup_bonus, credit_topup_bonus,
         )
         from config import ADMIN_IDS as _AIDS
@@ -1879,7 +1879,7 @@ async def rocket_paid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop("rocket_order_id", None)
         from database import (
             auto_approve_deposit_with_utr, is_utr_used, get_settings,
-            get_user, add_referral_bonus, add_log,
+            get_user, add_log,
             compute_topup_bonus, credit_topup_bonus,
         )
         from config import ADMIN_IDS as _AIDS
