@@ -61,7 +61,7 @@ from handlers.admin_handlers import (
     bulk_clear_none_callback, bulk_clear_confirm_callback, bulk_clear_back_callback,
     bulk_clear_final_yes_callback,
     bulk_add_start_callback, bulk_add_toggle_callback, bulk_add_all_callback,
-    bulk_add_none_callback, bulk_add_confirm_callback,
+    bulk_add_none_callback, bulk_add_confirm_callback, bulk_page_callback,
     bulk_del_start_callback, bulk_del_toggle_callback, bulk_del_all_callback,
     bulk_del_none_callback, bulk_del_confirm_callback, bulk_del_back_callback,
     bulk_del_final_yes_callback,
@@ -891,6 +891,7 @@ def main():
     app.add_handler(CallbackQueryHandler(svc_keywords_callback, pattern="^svc_keywords_"))
     app.add_handler(CallbackQueryHandler(svc_kw_add_callback, pattern="^svc_kw_add_"))
     app.add_handler(CallbackQueryHandler(svc_kw_del_callback, pattern="^svc_kw_del_"))
+    app.add_handler(CallbackQueryHandler(bulk_page_callback, pattern="^bulk_(clear|add|del|price|digits)_page_"))
     # ----- Bulk Stock Clear (multi-select) -----
     app.add_handler(CallbackQueryHandler(bulk_clear_start_callback,     pattern="^bulk_clear_start$"))
     app.add_handler(CallbackQueryHandler(bulk_clear_all_callback,       pattern="^bulk_clear_all$"))

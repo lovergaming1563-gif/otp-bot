@@ -296,17 +296,33 @@ def admin_services_keyboard(services: list, page: int = 0, per_page: int = 10):
     return InlineKeyboardMarkup(keyboard)
 
 
-def bulk_select_keyboard(services: list, selected: set, action: str):
+def bulk_select_keyboard(services: list, selected: set, action: str, page: int = 0, per_page: int = 10):
     """Generic multi-select checkbox keyboard for services.
     action: 'clear' | 'add' | 'del' | 'price' | 'digits' — controls callback prefixes and confirm button label.
     """
     keyboard = []
-    for s in services:
+    total = len(services)
+    start = page * per_page
+    end = start + per_page
+    page_services = services[start:end]
+    for s in page_services:
         name = s["name"]
         checked = "☑" if name in selected else "☐"
         keyboard.append([
             InlineKeyboardButton(f"{checked} {name}", callback_data=f"bulk_{action}_tog_{name}")
         ])
+    # Pagination Row
+    has_prev = page > 0
+    has_next = end < total
+    if has_prev or has_next:
+        total_pages = (total + per_page - 1) // per_page
+        nav = []
+        if has_prev:
+            nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"bulk_{action}_page_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
+        if has_next:
+            nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"bulk_{action}_page_{page + 1}"))
+        keyboard.append(nav)
     keyboard.append([
         InlineKeyboardButton("✅ Select All", callback_data=f"bulk_{action}_all"),
         InlineKeyboardButton("⬜ Clear All", callback_data=f"bulk_{action}_none"),

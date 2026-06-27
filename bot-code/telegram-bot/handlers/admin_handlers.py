@@ -3771,6 +3771,7 @@ async def bulk_clear_start_callback(update: Update, context: ContextTypes.DEFAUL
         return
     services = await get_services()
     context.user_data["bulk_clear_selected"] = set()
+    context.user_data["bulk_clear_page"] = 0
     summary = await get_stock_summary()
     lines = ["🧹 *Bulk Clear Stock*", "", "Jin services ka stock clear karna hai unko select karo:", ""]
     for s in services:
@@ -3778,7 +3779,7 @@ async def bulk_clear_start_callback(update: Update, context: ContextTypes.DEFAUL
         lines.append(f"• {s['name']} — {cnt} in stock")
     await query.edit_message_text(
         "\n".join(lines),
-        reply_markup=bulk_select_keyboard(services, set(), "clear"),
+        reply_markup=bulk_select_keyboard(services, set(), "clear", page=0),
         parse_mode="Markdown"
     )
 
@@ -3796,8 +3797,9 @@ async def bulk_clear_toggle_callback(update: Update, context: ContextTypes.DEFAU
         selected.add(name)
     context.user_data["bulk_clear_selected"] = selected
     services = await get_services()
+    page = context.user_data.get("bulk_clear_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "clear"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "clear", page=page))
     except Exception:
         pass
 
@@ -3810,8 +3812,9 @@ async def bulk_clear_all_callback(update: Update, context: ContextTypes.DEFAULT_
     services = await get_services()
     selected = {s["name"] for s in services}
     context.user_data["bulk_clear_selected"] = selected
+    page = context.user_data.get("bulk_clear_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "clear"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "clear", page=page))
     except Exception:
         pass
 
@@ -3823,8 +3826,9 @@ async def bulk_clear_none_callback(update: Update, context: ContextTypes.DEFAULT
         return
     context.user_data["bulk_clear_selected"] = set()
     services = await get_services()
+    page = context.user_data.get("bulk_clear_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "clear"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "clear", page=page))
     except Exception:
         pass
 
@@ -3868,6 +3872,7 @@ async def bulk_clear_back_callback(update: Update, context: ContextTypes.DEFAULT
         return
     services = await get_services()
     selected = context.user_data.get("bulk_clear_selected", set())
+    page = context.user_data.get("bulk_clear_page", 0)
     summary = await get_stock_summary()
     lines = ["🧹 *Bulk Clear Stock*", "", "Jin services ka stock clear karna hai unko select karo:", ""]
     for s in services:
@@ -3875,7 +3880,7 @@ async def bulk_clear_back_callback(update: Update, context: ContextTypes.DEFAULT
         lines.append(f"• {s['name']} — {cnt} in stock")
     await query.edit_message_text(
         "\n".join(lines),
-        reply_markup=bulk_select_keyboard(services, selected, "clear"),
+        reply_markup=bulk_select_keyboard(services, selected, "clear", page=page),
         parse_mode="Markdown"
     )
 
@@ -3919,11 +3924,12 @@ async def bulk_add_start_callback(update: Update, context: ContextTypes.DEFAULT_
         return
     services = await get_services()
     context.user_data["bulk_add_selected"] = set()
+    context.user_data["bulk_add_page"] = 0
     await query.edit_message_text(
         "📦 *Bulk Add Stock*\n\n"
         "Step 1: Jin services mein numbers add karne hain unko select karo.\n"
         "Step 2: Phir numbers paste karoge — wahi numbers sab selected services mein add ho jayenge.",
-        reply_markup=bulk_select_keyboard(services, set(), "add"),
+        reply_markup=bulk_select_keyboard(services, set(), "add", page=0),
         parse_mode="Markdown"
     )
 
@@ -3941,8 +3947,9 @@ async def bulk_add_toggle_callback(update: Update, context: ContextTypes.DEFAULT
         selected.add(name)
     context.user_data["bulk_add_selected"] = selected
     services = await get_services()
+    page = context.user_data.get("bulk_add_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "add"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "add", page=page))
     except Exception:
         pass
 
@@ -3955,8 +3962,9 @@ async def bulk_add_all_callback(update: Update, context: ContextTypes.DEFAULT_TY
     services = await get_services()
     selected = {s["name"] for s in services}
     context.user_data["bulk_add_selected"] = selected
+    page = context.user_data.get("bulk_add_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "add"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "add", page=page))
     except Exception:
         pass
 
@@ -3968,8 +3976,32 @@ async def bulk_add_none_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
     context.user_data["bulk_add_selected"] = set()
     services = await get_services()
+    page = context.user_data.get("bulk_add_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "add"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "add", page=page))
+    except Exception:
+        pass
+
+
+async def bulk_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    # query.data format: bulk_{action}_page_{page}
+    parts = query.data.split("_")
+    action = parts[1]
+    try:
+        page = int(parts[3])
+    except (IndexError, ValueError):
+        page = 0
+    context.user_data[f"bulk_{action}_page"] = page
+    services = await get_services()
+    selected = context.user_data.get(f"bulk_{action}_selected", set())
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=bulk_select_keyboard(services, selected, action, page=page)
+        )
     except Exception:
         pass
 
@@ -4013,11 +4045,12 @@ async def bulk_del_start_callback(update: Update, context: ContextTypes.DEFAULT_
         return
     services = await get_services()
     context.user_data["bulk_del_selected"] = set()
+    context.user_data["bulk_del_page"] = 0
     await query.edit_message_text(
         "🗑 *Bulk Delete Services*\n\n"
         "Jin services ko delete karna hai unko select karo.\n"
         "⚠️ Note: Service delete hone ke baad uska stock orphan ho jayega — pehle clear kar lo.",
-        reply_markup=bulk_select_keyboard(services, set(), "del"),
+        reply_markup=bulk_select_keyboard(services, set(), "del", page=0),
         parse_mode="Markdown"
     )
 
@@ -4035,8 +4068,9 @@ async def bulk_del_toggle_callback(update: Update, context: ContextTypes.DEFAULT
         selected.add(name)
     context.user_data["bulk_del_selected"] = selected
     services = await get_services()
+    page = context.user_data.get("bulk_del_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "del"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "del", page=page))
     except Exception:
         pass
 
@@ -4049,8 +4083,9 @@ async def bulk_del_all_callback(update: Update, context: ContextTypes.DEFAULT_TY
     services = await get_services()
     selected = {s["name"] for s in services}
     context.user_data["bulk_del_selected"] = selected
+    page = context.user_data.get("bulk_del_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "del"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "del", page=page))
     except Exception:
         pass
 
@@ -4062,8 +4097,9 @@ async def bulk_del_none_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
     context.user_data["bulk_del_selected"] = set()
     services = await get_services()
+    page = context.user_data.get("bulk_del_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "del"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "del", page=page))
     except Exception:
         pass
 
@@ -4103,11 +4139,12 @@ async def bulk_del_back_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
     services = await get_services()
     selected = context.user_data.get("bulk_del_selected", set())
+    page = context.user_data.get("bulk_del_page", 0)
     await query.edit_message_text(
         "🗑 *Bulk Delete Services*\n\n"
         "Jin services ko delete karna hai unko select karo.\n"
         "⚠️ Note: Service delete hone ke baad uska stock orphan ho jayega — pehle clear kar lo.",
-        reply_markup=bulk_select_keyboard(services, selected, "del"),
+        reply_markup=bulk_select_keyboard(services, selected, "del", page=page),
         parse_mode="Markdown"
     )
 
@@ -4158,11 +4195,12 @@ async def bulk_price_start_callback(update: Update, context: ContextTypes.DEFAUL
         return
     services = await get_services()
     context.user_data["bulk_price_selected"] = set()
+    context.user_data["bulk_price_page"] = 0
     await query.edit_message_text(
         "💵 *Bulk Price Change*\n\n"
         "Step 1: Jin services ka price change karna hai unko select karo.\n"
         "Step 2: Phir naya price daloge — wahi price sab selected services pe set ho jayega.",
-        reply_markup=bulk_select_keyboard(services, set(), "price"),
+        reply_markup=bulk_select_keyboard(services, set(), "price", page=0),
         parse_mode="Markdown"
     )
 
@@ -4180,8 +4218,9 @@ async def bulk_price_toggle_callback(update: Update, context: ContextTypes.DEFAU
         selected.add(name)
     context.user_data["bulk_price_selected"] = selected
     services = await get_services()
+    page = context.user_data.get("bulk_price_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "price"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "price", page=page))
     except Exception:
         pass
 
@@ -4194,8 +4233,9 @@ async def bulk_price_all_callback(update: Update, context: ContextTypes.DEFAULT_
     services = await get_services()
     selected = {s["name"] for s in services}
     context.user_data["bulk_price_selected"] = selected
+    page = context.user_data.get("bulk_price_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "price"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "price", page=page))
     except Exception:
         pass
 
@@ -4207,8 +4247,9 @@ async def bulk_price_none_callback(update: Update, context: ContextTypes.DEFAULT
         return
     context.user_data["bulk_price_selected"] = set()
     services = await get_services()
+    page = context.user_data.get("bulk_price_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "price"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "price", page=page))
     except Exception:
         pass
 
@@ -4247,11 +4288,12 @@ async def bulk_digits_start_callback(update: Update, context: ContextTypes.DEFAU
         return
     services = await get_services()
     context.user_data["bulk_digits_selected"] = set()
+    context.user_data["bulk_digits_page"] = 0
     await query.edit_message_text(
         "📏 *Bulk OTP Digit Change*\n\n"
         "Step 1: Jin services me digit setting change karni hai unko select karo.\n"
         "Step 2: Phir digit length daloge (jaise `6`) — wahi setting sab selected services pe lag jayegi.",
-        reply_markup=bulk_select_keyboard(services, set(), "digits"),
+        reply_markup=bulk_select_keyboard(services, set(), "digits", page=0),
         parse_mode="Markdown"
     )
 
@@ -4269,8 +4311,9 @@ async def bulk_digits_toggle_callback(update: Update, context: ContextTypes.DEFA
         selected.add(name)
     context.user_data["bulk_digits_selected"] = selected
     services = await get_services()
+    page = context.user_data.get("bulk_digits_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "digits"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "digits", page=page))
     except Exception:
         pass
 
@@ -4283,8 +4326,9 @@ async def bulk_digits_all_callback(update: Update, context: ContextTypes.DEFAULT
     services = await get_services()
     selected = {s["name"] for s in services}
     context.user_data["bulk_digits_selected"] = selected
+    page = context.user_data.get("bulk_digits_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "digits"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, selected, "digits", page=page))
     except Exception:
         pass
 
@@ -4296,8 +4340,9 @@ async def bulk_digits_none_callback(update: Update, context: ContextTypes.DEFAUL
         return
     context.user_data["bulk_digits_selected"] = set()
     services = await get_services()
+    page = context.user_data.get("bulk_digits_page", 0)
     try:
-        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "digits"))
+        await query.edit_message_reply_markup(reply_markup=bulk_select_keyboard(services, set(), "digits", page=page))
     except Exception:
         pass
 
