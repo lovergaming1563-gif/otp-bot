@@ -760,8 +760,6 @@ def main():
     app.add_handler(CallbackQueryHandler(confirm_buy_callback, pattern="^confirm_buy_"))
     app.add_handler(CallbackQueryHandler(cancel_order_callback, pattern="^cancel_order$"))
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern="^deposit$"))
-    app.add_handler(CallbackQueryHandler(i_paid_handler,       pattern="^i_paid(_[0-9.]+)?$"))
-    app.add_handler(CallbackQueryHandler(i_paid_retry_handler, pattern="^i_paid_retry$"))
 
     app.add_handler(CallbackQueryHandler(admin_back_callback, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_stats_callback, pattern="^admin_stats$"))
