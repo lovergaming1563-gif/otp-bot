@@ -6,7 +6,7 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes, TypeHandler, ApplicationHandlerStop
 )
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_IDS
-from database import init_db
+from database import init_db, load_admin_cache
 from handlers.user_handlers import (
     start, check_join_callback, main_menu_callback, profile_callback,
     refer_callback, support_callback, history_callback,
@@ -89,6 +89,9 @@ from handlers.admin_handlers import (
     toggle_fake_guard_callback, toggle_trap_rule_callback, toggle_weekly_reset_callback,
     admin_suspicious_callback, suspicious_ignore_handler, suspicious_ban_handler,
     import_services_command, fix_digits_command,
+    admin_management_callback, admin_add_callback, admin_list_callback,
+    admin_delete_callback, admin_edit_permissions_callback,
+    admin_toggle_permission_callback, admin_activities_callback,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -101,8 +104,13 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user and update.effective_user.id in ADMIN_IDS:
-        if context.user_data.get("admin_action"):
+    from handlers.admin_handlers import is_admin
+    if update.effective_user and is_admin(update.effective_user.id):
+        if context.user_data.get("admin_action") == "add_new_admin":
+            from handlers.admin_handlers import admin_add_id_handler
+            await admin_add_id_handler(update, context)
+            return
+        elif context.user_data.get("admin_action"):
             await handle_admin_text(update, context)
             return
 
@@ -392,7 +400,11 @@ async def group_health_check(context):
 
 async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/health — admin command to view current group/bot activity status."""
-    if update.effective_user.id not in ADMIN_IDS:
+    from handlers.admin_handlers import is_admin, check_permission
+    if not is_admin(update.effective_user.id):
+        return
+    if not check_permission(update.effective_user.id, "group_monitor"):
+        await update.message.reply_text("❌ Access Denied: Aapko Health Check dekhne ka access nahi hai.")
         return
     from database import get_all_group_activity
     import datetime as _dt
@@ -686,7 +698,8 @@ async def maintenance_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user:
         return
     uid = update.effective_user.id
-    if uid in ADMIN_IDS:
+    from handlers.admin_handlers import is_admin
+    if is_admin(uid):
         return  # Admins always pass
     try:
         from database import get_settings
@@ -965,6 +978,15 @@ def main():
     app.add_handler(CallbackQueryHandler(refund_approve_callback, pattern="^refund_approve_"))
     app.add_handler(CallbackQueryHandler(refund_reject_callback, pattern="^refund_reject_"))
 
+    # Admin Management Callbacks
+    app.add_handler(CallbackQueryHandler(admin_management_callback, pattern="^admin_management$"))
+    app.add_handler(CallbackQueryHandler(admin_add_callback, pattern="^admin_add$"))
+    app.add_handler(CallbackQueryHandler(admin_list_callback, pattern="^admin_list$"))
+    app.add_handler(CallbackQueryHandler(admin_delete_callback, pattern="^delete_admin_"))
+    app.add_handler(CallbackQueryHandler(admin_edit_permissions_callback, pattern="^edit_perm_"))
+    app.add_handler(CallbackQueryHandler(admin_toggle_permission_callback, pattern="^toggle_perm_"))
+    app.add_handler(CallbackQueryHandler(admin_activities_callback, pattern="^admin_activities"))
+
     app.add_handler(MessageHandler(
         (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.VIDEO) & filters.ChatType.PRIVATE & ~filters.COMMAND,
         handle_refund_video
@@ -981,6 +1003,16 @@ def main():
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_text
     ))
+
+    # Load dynamic admin permissions cache from MongoDB
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(load_admin_cache())
+        else:
+            loop.run_until_complete(load_admin_cache())
+    except Exception as e:
+        logger.error(f"[BOOT] Failed to run load_admin_cache: {e}")
 
     logger.info("[BOOT] 🚀 Bot starting — polling mode...")
     logger.info("[BOOT] Features active: multi-OTP, first-buy-discount, history-filters, favorites, blacklist, refunds")

@@ -2119,3 +2119,73 @@ async def ban_device_users_by_flag(flag_id: str):
             await ban_user(uid)
         await db.suspicious_flags.update_one({"_id": ObjectId(flag_id)}, {"$set": {"status": "banned_all"}})
 
+
+# ============================================================================
+# DYNAMIC ADMIN ROLES, PERMISSIONS & ACTIVITIES
+# ============================================================================
+
+_admin_cache = {}
+
+async def load_admin_cache():
+    global _admin_cache
+    try:
+        cursor = db.admins.find({})
+        admins_list = await cursor.to_list(None)
+        _admin_cache = {a["user_id"]: a.get("permissions", []) for a in admins_list}
+        logger.info(f"[RBAC] Loaded {len(_admin_cache)} admins into memory cache.")
+    except Exception as e:
+        logger.error(f"[RBAC] Failed to load admin cache: {e}")
+
+def get_admin_cache() -> dict:
+    global _admin_cache
+    return _admin_cache
+
+async def add_admin(user_id: int, username: str, first_name: str, permissions=None):
+    if permissions is None:
+        permissions = []
+    # Verify if user exists or create default admin doc
+    doc = {
+        "user_id": user_id,
+        "username": username,
+        "first_name": first_name,
+        "permissions": permissions,
+        "added_at": datetime.datetime.utcnow()
+    }
+    await db.admins.update_one({"user_id": user_id}, {"$set": doc}, upsert=True)
+    await load_admin_cache()
+
+async def remove_admin(user_id: int):
+    await db.admins.delete_one({"user_id": user_id})
+    await load_admin_cache()
+
+async def update_admin_permissions(user_id: int, permissions: list):
+    await db.admins.update_one({"user_id": user_id}, {"$set": {"permissions": permissions}})
+    await load_admin_cache()
+
+async def get_admin(user_id: int):
+    return await db.admins.find_one({"user_id": user_id})
+
+async def get_all_admins() -> list:
+    return await db.admins.find({}).to_list(None)
+
+async def log_admin_activity(admin_id: int, admin_name: str, action: str, details: str):
+    try:
+        doc = {
+            "admin_id": admin_id,
+            "admin_name": admin_name,
+            "action": action,
+            "details": details,
+            "timestamp": datetime.datetime.utcnow()
+        }
+        await db.admin_activities.insert_one(doc)
+    except Exception as e:
+        logger.error(f"[RBAC] Failed to log admin activity: {e}")
+
+async def get_admin_activities(limit: int = 50) -> list:
+    try:
+        cursor = db.admin_activities.find({}).sort("timestamp", -1).limit(limit)
+        return await cursor.to_list(None)
+    except Exception as e:
+        logger.error(f"[RBAC] Failed to fetch admin activities: {e}")
+        return []
+

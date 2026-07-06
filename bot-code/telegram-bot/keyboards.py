@@ -136,29 +136,220 @@ def back_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def admin_main_keyboard():
+def admin_main_keyboard(user_id: int = None):
+    from config import ADMIN_ID
+    from database import get_admin_cache
+
+    if user_id is None:
+        # Default to Super Admin Owner view
+        is_owner = True
+        perms = []
+    else:
+        is_owner = (user_id == ADMIN_ID)
+        perms = get_admin_cache().get(user_id, [])
+
+    def has_p(permission_name: str) -> bool:
+        if is_owner:
+            return True
+        return permission_name in perms
+
+    keyboard = []
+
+    # Row 1: Stock & Deposits
+    row1 = []
+    if has_p("stock"):
+        row1.append(InlineKeyboardButton("📦 Stock", callback_data="admin_stock"))
+    if has_p("deposits"):
+        row1.append(InlineKeyboardButton("💰 Deposits", callback_data="admin_deposits"))
+    if row1:
+        keyboard.append(row1)
+
+    # Row 2: Users & Stats
+    row2 = []
+    if has_p("users"):
+        row2.append(InlineKeyboardButton("👥 Users", callback_data="admin_users"))
+    if has_p("stats"):
+        row2.append(InlineKeyboardButton("📊 Stats", callback_data="admin_stats"))
+    if row2:
+        keyboard.append(row2)
+
+    # Row 3: Broadcast & Logs
+    row3 = []
+    if has_p("broadcast"):
+        row3.append(InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"))
+    if has_p("logs"):
+        row3.append(InlineKeyboardButton("📜 Logs", callback_data="admin_logs"))
+    if row3:
+        keyboard.append(row3)
+
+    # Row 4: Settings & Export
+    row4 = []
+    if has_p("settings"):
+        row4.append(InlineKeyboardButton("⚙️ Settings", callback_data="admin_settings"))
+    if has_p("export"):
+        row4.append(InlineKeyboardButton("🧾 Export", callback_data="admin_export"))
+    if row4:
+        keyboard.append(row4)
+
+    # Row 5: Mode & Manual
+    row5 = []
+    if has_p("mode"):
+        row5.append(InlineKeyboardButton("🔁 Mode Control", callback_data="admin_mode"))
+    if has_p("manual"):
+        row5.append(InlineKeyboardButton("✋ Manual", callback_data="admin_manual"))
+    if row5:
+        keyboard.append(row5)
+
+    # Row 6: Top Spenders & Reset Stats
+    row6 = []
+    if has_p("top_spenders"):
+        row6.append(InlineKeyboardButton("🏆 Top Spenders", callback_data="admin_top_spenders"))
+    if has_p("reset_stats"):
+        row6.append(InlineKeyboardButton("🗑 Reset Stats", callback_data="admin_reset_stats"))
+    if row6:
+        keyboard.append(row6)
+
+    # Row 7: Services & Promo Codes
+    row7 = []
+    if has_p("services"):
+        row7.append(InlineKeyboardButton("🛠 Services", callback_data="admin_services"))
+    if has_p("promos"):
+        row7.append(InlineKeyboardButton("🎁 Promo Codes", callback_data="admin_promos"))
+    if row7:
+        keyboard.append(row7)
+
+    # Row 8: Flash Sale & Top-up Bonus
+    row8 = []
+    if has_p("flash_sale"):
+        row8.append(InlineKeyboardButton("🔥 Flash Sale", callback_data="admin_flash_sale"))
+    if has_p("topup_bonus"):
+        row8.append(InlineKeyboardButton("💎 Top-up Bonus", callback_data="admin_topup_bonus"))
+    if row8:
+        keyboard.append(row8)
+
+    # Row 9: Deposit Stats & Wallet Balances
+    row9 = []
+    if has_p("deposit_stats"):
+        row9.append(InlineKeyboardButton("💰 Deposit Stats", callback_data="admin_deposit_stats"))
+    if has_p("wallet_balances"):
+        row9.append(InlineKeyboardButton("💳 Wallet Balances", callback_data="admin_wallet_balances"))
+    if row9:
+        keyboard.append(row9)
+
+    # Row 10: Users Export & Restore Balances
+    row10 = []
+    if has_p("users_export"):
+        row10.append(InlineKeyboardButton("📥 Users Export", callback_data="admin_users_export"))
+    if has_p("restore_balances"):
+        row10.append(InlineKeyboardButton("📤 Restore Balances", callback_data="admin_restore_balances"))
+    if row10:
+        keyboard.append(row10)
+
+    # Row 11: Last 50 OTPs
+    if has_p("recent_otps"):
+        keyboard.append([InlineKeyboardButton("📋 Last 50 OTPs", callback_data="admin_recent_otps")])
+
+    # Owner-Only Admin Management Button
+    if is_owner:
+        keyboard.append([InlineKeyboardButton("👑 Admin Management", callback_data="admin_management")])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_management_main_keyboard():
     keyboard = [
-        [InlineKeyboardButton("📦 Stock",        callback_data="admin_stock"),
-         InlineKeyboardButton("💰 Deposits",     callback_data="admin_deposits")],
-        [InlineKeyboardButton("👥 Users",        callback_data="admin_users"),
-         InlineKeyboardButton("📊 Stats",        callback_data="admin_stats")],
-        [InlineKeyboardButton("📢 Broadcast",    callback_data="admin_broadcast"),
-         InlineKeyboardButton("📜 Logs",         callback_data="admin_logs")],
-        [InlineKeyboardButton("⚙️ Settings",     callback_data="admin_settings"),
-         InlineKeyboardButton("🧾 Export",       callback_data="admin_export")],
-        [InlineKeyboardButton("🔁 Mode Control", callback_data="admin_mode"),
-         InlineKeyboardButton("✋ Manual",       callback_data="admin_manual")],
-        [InlineKeyboardButton("🏆 Top Spenders", callback_data="admin_top_spenders"),
-         InlineKeyboardButton("🗑 Reset Stats",  callback_data="admin_reset_stats")],
-        [InlineKeyboardButton("🛠 Services",     callback_data="admin_services"),
-         InlineKeyboardButton("🎁 Promo Codes",  callback_data="admin_promos")],
-        [InlineKeyboardButton("🔥 Flash Sale",   callback_data="admin_flash_sale"),
-         InlineKeyboardButton("💎 Top-up Bonus", callback_data="admin_topup_bonus")],
-        [InlineKeyboardButton("💰 Deposit Stats", callback_data="admin_deposit_stats"),
-         InlineKeyboardButton("💳 Wallet Balances", callback_data="admin_wallet_balances")],
-        [InlineKeyboardButton("📥 Users Export", callback_data="admin_users_export"),
-         InlineKeyboardButton("📤 Restore Balances", callback_data="admin_restore_balances")],
-        [InlineKeyboardButton("📋 Last 50 OTPs", callback_data="admin_recent_otps")],
+        [InlineKeyboardButton("➕ Add Sub-Admin", callback_data="admin_add"),
+         InlineKeyboardButton("👥 List Admins", callback_data="admin_list")],
+        [InlineKeyboardButton("📜 Admin Activity Logs", callback_data="admin_activities")],
+        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def list_admins_keyboard(admins_list):
+    keyboard = []
+    for admin in admins_list:
+        uid = admin["user_id"]
+        name = admin.get("first_name", "N/A")
+        uname = admin.get("username", "")
+        label = f"{name} ({uid})" if not uname else f"{name} (@{uname})"
+        keyboard.append([
+            InlineKeyboardButton(f"⚙️ {label}", callback_data=f"edit_perm_{uid}_1"),
+            InlineKeyboardButton("❌ Remove", callback_data=f"delete_admin_{uid}")
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="admin_management")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+PERMS_PAGE_1 = [
+    ("stock", "📦 Stock"),
+    ("deposits", "💰 Deposits"),
+    ("users", "👥 Users"),
+    ("stats", "📊 Stats"),
+    ("broadcast", "📢 Broadcast"),
+    ("logs", "📜 Logs"),
+    ("manual", "✋ Manual"),
+    ("recent_otps", "📋 Last 50 OTPs"),
+    ("refunds", "🔄 Approve Refunds"),
+]
+
+PERMS_PAGE_2 = [
+    ("settings", "⚙️ Settings"),
+    ("export", "🧾 Export"),
+    ("mode", "🔁 Mode Control"),
+    ("top_spenders", "🏆 Top Spenders"),
+    ("reset_stats", "🗑 Reset Stats"),
+    ("services", "🛠 Services"),
+    ("promos", "🎁 Promo Codes"),
+    ("flash_sale", "🔥 Flash Sale"),
+    ("topup_bonus", "💎 Top-up Bonus"),
+    ("deposit_stats", "💰 Deposit Stats"),
+    ("wallet_balances", "💳 Wallet Balances"),
+    ("users_export", "📥 Users Export"),
+    ("restore_balances", "📤 Restore Balances"),
+]
+
+
+def edit_admin_permissions_keyboard(admin_id: int, permissions_list: list, page: int = 1):
+    keyboard = []
+    perms_to_use = PERMS_PAGE_1 if page == 1 else PERMS_PAGE_2
+    
+    # Render permission toggle buttons (2 buttons per row)
+    row = []
+    for key, label in perms_to_use:
+        has_perm = key in permissions_list
+        btn_label = f"🟢 {label}" if has_perm else f"🔴 {label}"
+        row.append(InlineKeyboardButton(btn_label, callback_data=f"toggle_perm_{admin_id}_{key}_{page}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    # Navigation buttons
+    nav_row = []
+    if page == 1:
+        nav_row.append(InlineKeyboardButton("Page 2 ▶️", callback_data=f"edit_perm_{admin_id}_2"))
+    else:
+        nav_row.append(InlineKeyboardButton("◀️ Page 1", callback_data=f"edit_perm_{admin_id}_1"))
+    keyboard.append(nav_row)
+
+    # Save and exit button
+    keyboard.append([InlineKeyboardButton("💾 Save & Close", callback_data="admin_list")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_activity_logs_keyboard(page: int = 1, has_next: bool = False):
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"admin_activities_page_{page - 1}"))
+    nav.append(InlineKeyboardButton(f"📄 Page {page}", callback_data="noop"))
+    if has_next:
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"admin_activities_page_{page + 1}"))
+    
+    keyboard = [
+        nav,
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_management")]
     ]
     return InlineKeyboardMarkup(keyboard)
 

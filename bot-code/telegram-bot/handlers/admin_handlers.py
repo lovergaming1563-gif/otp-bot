@@ -37,16 +37,30 @@ import database as _database  # for direct db access (e.g. db.services.find_one)
 
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    from database import get_admin_cache
+    if user_id in ADMIN_IDS:
+        return True
+    return user_id in get_admin_cache()
+
+
+def check_permission(user_id: int, permission: str) -> bool:
+    if user_id == ADMIN_ID:
+        return True
+    from database import get_admin_cache
+    cache = get_admin_cache()
+    if user_id in cache:
+        return permission in cache[user_id]
+    return False
 
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
         await update.message.reply_text("❌ Unauthorized.")
         return
     await update.message.reply_text(
         "🔐 *Admin Panel*\n\nSelect an option:",
-        reply_markup=admin_main_keyboard(),
+        reply_markup=admin_main_keyboard(user_id),
         parse_mode="Markdown"
     )
 
@@ -54,12 +68,13 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if not is_admin(query.from_user.id):
+    user_id = query.from_user.id
+    if not is_admin(user_id):
         return
     context.user_data.clear()
     await query.edit_message_text(
         "🔐 *Admin Panel*\n\nSelect an option:",
-        reply_markup=admin_main_keyboard(),
+        reply_markup=admin_main_keyboard(user_id),
         parse_mode="Markdown"
     )
 
@@ -68,6 +83,9 @@ async def admin_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "stats"):
+        await query.answer("❌ Access Denied: Aapko Stats dekhne ka access nahi hai.", show_alert=True)
         return
     stats = await get_stats()
     text = (
@@ -88,6 +106,9 @@ async def admin_stock_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "stock"):
+        await query.answer("❌ Access Denied: Aapko Stock manage karne ka access nahi hai.", show_alert=True)
         return
     services = await get_services()
     summary = await get_stock_summary()
@@ -291,6 +312,9 @@ async def admin_deposits_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "deposits"):
+        await query.answer("❌ Access Denied: Aapko Deposits manage karne ka access nahi hai.", show_alert=True)
+        return
     pending = await get_pending_deposits()
     if not pending:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -444,6 +468,9 @@ async def admin_users_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "users"):
+        await query.answer("❌ Access Denied: Aapko Users manage karne ka access nahi hai.", show_alert=True)
+        return
     context.user_data["admin_action"] = "search_user"
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]])
@@ -459,6 +486,9 @@ async def admin_broadcast_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "broadcast"):
+        await query.answer("❌ Access Denied: Aapko Broadcast karne ka access nahi hai.", show_alert=True)
+        return
     context.user_data["admin_action"] = "broadcast"
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]])
@@ -473,6 +503,9 @@ async def admin_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "logs"):
+        await query.answer("❌ Access Denied: Aapko Logs dekhne ka access nahi hai.", show_alert=True)
         return
     await query.edit_message_text(
         "📜 *Logs*\n\nSelect log type:",
@@ -513,6 +546,9 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "settings"):
+        await query.answer("❌ Access Denied: Aapko Settings manage karne ka access nahi hai.", show_alert=True)
         return
     settings = await get_settings()
     otp_group = settings.get("otp_group_id", None)
@@ -645,6 +681,9 @@ async def admin_deposit_stats_callback(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "deposit_stats"):
+        await query.answer("❌ Access Denied: Aapko Deposit Stats dekhne ka access nahi hai.", show_alert=True)
         return
     s = await get_deposit_stats()
     top_lines = ""
@@ -828,6 +867,13 @@ async def toggle_maintenance_callback(update: Update, context: ContextTypes.DEFA
     settings = await get_settings()
     current = settings.get("maintenance_mode", False)
     await update_settings("maintenance_mode", not current)
+    from database import log_admin_activity
+    await log_admin_activity(
+        query.from_user.id,
+        query.from_user.first_name,
+        "toggle_maintenance",
+        f"Toggled maintenance mode to {'ON' if not current else 'OFF'}"
+    )
     new_status = "🔴 ON — Users blocked" if not current else "🟢 OFF — Bot live"
     await query.answer(f"Maintenance: {new_status}", show_alert=True)
     await admin_settings_callback(update, context)
@@ -1003,6 +1049,9 @@ async def admin_flash_sale_callback(update: Update, context: ContextTypes.DEFAUL
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "flash_sale"):
+        await query.answer("❌ Access Denied: Aapko Flash Sale manage karne ka access nahi hai.", show_alert=True)
+        return
     from database import get_flash_sale
     from keyboards import flash_sale_panel_keyboard
     import datetime as _dt
@@ -1162,6 +1211,9 @@ async def admin_topup_bonus_callback(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "topup_bonus"):
+        await query.answer("❌ Access Denied: Aapko Top-up Bonus settings ka access nahi hai.", show_alert=True)
         return
     from database import get_topup_slabs
     from keyboards import topup_bonus_keyboard
@@ -1352,6 +1404,9 @@ async def admin_export_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "export"):
+        await query.answer("❌ Access Denied: Aapko Export dekhne ka access nahi hai.", show_alert=True)
+        return
     users = await get_all_users()
     users_with_balance = [u for u in users if u.get("balance", 0) > 0]
     total_liability = sum(u.get("balance", 0) for u in users_with_balance)
@@ -1374,6 +1429,9 @@ async def admin_restore_balances_callback(update, context):
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "restore_balances"):
+        await query.answer("❌ Access Denied: Aapko Restore Balances karne ka access nahi hai.", show_alert=True)
         return
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     context.user_data["admin_action"] = "restore_balances"
@@ -1944,6 +2002,9 @@ async def admin_users_export_callback(update, context):
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "users_export"):
+        await query.answer("❌ Access Denied: Aapko Users Export karne ka access nahi hai.", show_alert=True)
+        return
     import json, io, datetime
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -2006,6 +2067,9 @@ async def admin_wallet_balances_callback(update, context):
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "wallet_balances"):
+        await query.answer("❌ Access Denied: Aapko Wallet Balances dekhne ka access nahi hai.", show_alert=True)
+        return
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     users = await get_all_users()
     users_with_balance = [u for u in users if float(u.get('balance', 0) or 0) > 0]
@@ -2040,6 +2104,9 @@ async def admin_top_spenders_callback(update: Update, context: ContextTypes.DEFA
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "top_spenders"):
+        await query.answer("❌ Access Denied: Aapko Top Spenders dekhne ka access nahi hai.", show_alert=True)
+        return
     spenders = await get_top_spenders(10)
     if not spenders:
         text = "🏆 *Top Spenders*\n\nAbhi tak kisi ne kuch spend nahi kiya."
@@ -2064,6 +2131,9 @@ async def admin_reset_stats_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "reset_stats"):
+        await query.answer("❌ Access Denied: Aapko stats reset karne ka access nahi hai.", show_alert=True)
+        return
     stats = await get_stats()
     text = (
         f"⚠️ *Reset All Stats*\n\n"
@@ -2085,6 +2155,9 @@ async def admin_reset_stats_confirm_callback(update: Update, context: ContextTyp
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "reset_stats"):
+        await query.answer("❌ Access Denied: Aapko stats reset karne ka access nahi hai.", show_alert=True)
+        return
     await reset_all_stats()
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_back")]])
@@ -2102,6 +2175,9 @@ async def admin_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "mode"):
+        await query.answer("❌ Access Denied: Aapko Mode settings ka access nahi hai.", show_alert=True)
+        return
     mode = await get_mode()
     await query.edit_message_text(
         f"🔁 *Mode Control*\n\nCurrent mode: *{mode.upper()}*\n\nSelect mode:",
@@ -2114,6 +2190,9 @@ async def mode_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "mode"):
+        await query.answer("❌ Access Denied: Aapko Mode settings ka access nahi hai.", show_alert=True)
         return
     mode = "auto" if query.data == "mode_auto" else "manual"
     await set_mode(mode)
@@ -2128,6 +2207,9 @@ async def admin_manual_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "manual"):
+        await query.answer("❌ Access Denied: Aapko Manual control ka access nahi hai.", show_alert=True)
         return
     await query.edit_message_text(
         "✋ *Manual Control*\n\nSelect action:",
@@ -3299,6 +3381,9 @@ async def admin_services_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "services"):
+        await query.answer("❌ Access Denied: Aapko Services manage karne ka access nahi hai.", show_alert=True)
+        return
     services = await get_services()
     text = (
         "🛠 *Services Manager*\n\n"
@@ -3629,6 +3714,9 @@ async def admin_promos_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "promos"):
+        await query.answer("❌ Access Denied: Aapko Promo Codes manage karne ka access nahi hai.", show_alert=True)
         return
     from database import list_promo_codes
     from keyboards import admin_promos_keyboard
@@ -4949,6 +5037,9 @@ async def admin_recent_otps_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    if not check_permission(query.from_user.id, "recent_otps"):
+        await query.answer("❌ Access Denied: Aapko Last 50 OTPs dekhne ka access nahi hai.", show_alert=True)
+        return
 
     sessions = await get_recent_otp_sessions(50)
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -5667,3 +5758,282 @@ async def fix_digits_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         f"✅ Fixed otp_digits for {updated}/{len(fixes)} services to [4, 6]"
     )
+
+
+# ============================================================================
+# 👑 ADMIN ROLES MANAGEMENT (Owner-only)
+# ============================================================================
+
+async def admin_management_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Access Denied: Yeh menu sirf Super Admin (Owner) ke liye hai.", show_alert=True)
+        return
+    
+    text = (
+        f"👑 *Admin Management Center*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Apne sub-admins ko manage karein, permissions set karein aur unki activities monitor karein."
+    )
+    from keyboards import admin_management_main_keyboard
+    await query.edit_message_text(text, reply_markup=admin_management_main_keyboard(), parse_mode="Markdown")
+
+
+async def admin_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    context.user_data["admin_action"] = "add_new_admin"
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_management")]])
+    await query.edit_message_text(
+        "➕ *Add New Sub-Admin*\n\n"
+        "Naye admin ka **Telegram User ID** enter karo:\n"
+        "_(User ID ek plain number hota hai, jaise `6928507193`)_",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def admin_add_id_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if context.user_data.get("admin_action") != "add_new_admin":
+        return
+    
+    text = update.message.text.strip()
+    if not text.isdigit():
+        await update.message.reply_text("❌ User ID sirf numbers mein hona chahiye. Dobara enter karo:")
+        return
+
+    target_uid = int(text)
+    
+    # Check if they are already in the admin collection
+    from database import get_admin, add_admin, get_user, log_admin_activity
+    existing = await get_admin(target_uid)
+    if existing:
+        await update.message.reply_text(
+            f"⚠️ User `{target_uid}` pehle se sub-admin hai.",
+            reply_markup=admin_main_keyboard(update.effective_user.id)
+        )
+        context.user_data.pop("admin_action", None)
+        return
+
+    # Look up name in users DB
+    target_user = await get_user(target_uid)
+    first_name = target_user.get("first_name", "Sub-Admin") if target_user else "Sub-Admin"
+    username = target_user.get("username", "") if target_user else ""
+
+    # Create admin with empty permissions initially
+    await add_admin(target_uid, username, first_name, permissions=[])
+    
+    context.user_data.pop("admin_action", None)
+    
+    # Log owner activity
+    await log_admin_activity(
+        ADMIN_ID, 
+        update.effective_user.first_name or "Owner", 
+        "add_admin", 
+        f"Added admin user {first_name} ({target_uid})"
+    )
+
+    # Show permissions editor
+    from keyboards import edit_admin_permissions_keyboard
+    await update.message.reply_text(
+        f"✅ *Admin created successfully!*\n\n"
+        f"Name: *{first_name}*\n"
+        f"ID: `{target_uid}`\n\n"
+        f"Neeche se is admin ke liye permissions select karein:",
+        reply_markup=edit_admin_permissions_keyboard(target_uid, [], page=1),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    
+    from database import get_all_admins
+    admins_list = await get_all_admins()
+    # Filter out Owner ID if it exists in DB list just to be clean
+    admins_list = [a for a in admins_list if a["user_id"] != ADMIN_ID]
+    
+    if not admins_list:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_management")]])
+        await query.edit_message_text(
+            "👥 *Sub-Admins List*\n\n"
+            "Abhi tak koi sub-admin add nahi kiya gaya hai.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    from keyboards import list_admins_keyboard
+    await query.edit_message_text(
+        "👥 *Sub-Admins List*\n\n"
+        "Click on an admin to edit their permissions or delete them:",
+        reply_markup=list_admins_keyboard(admins_list),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    
+    target_uid = int(query.data.replace("delete_admin_", ""))
+    from database import get_admin, remove_admin, log_admin_activity
+    admin_doc = await get_admin(target_uid)
+    admin_name = admin_doc.get("first_name", "N/A") if admin_doc else "N/A"
+    
+    await remove_admin(target_uid)
+    await query.answer(f"Admin {admin_name} removed.", show_alert=True)
+    
+    # Log owner activity
+    await log_admin_activity(
+        ADMIN_ID, 
+        query.from_user.first_name or "Owner", 
+        "remove_admin", 
+        f"Removed admin user {admin_name} ({target_uid})"
+    )
+
+    await admin_list_callback(update, context)
+
+
+async def admin_edit_permissions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    
+    # Format: edit_perm_{uid}_{page}
+    parts = query.data.split("_")
+    target_uid = int(parts[2])
+    page = int(parts[3])
+    
+    from database import get_admin
+    admin_doc = await get_admin(target_uid)
+    if not admin_doc:
+        await query.answer("Admin not found.", show_alert=True)
+        return
+        
+    permissions = admin_doc.get("permissions", [])
+    from keyboards import edit_admin_permissions_keyboard
+    await query.edit_message_text(
+        f"⚙️ *Manage Permissions*\n\n"
+        f"Admin: *{admin_doc.get('first_name', 'N/A')}* (`{target_uid}`)\n"
+        f"Page: *{page}/2*\n\n"
+        f"Green (🟢) = Access Enabled | Red (🔴) = Blocked",
+        reply_markup=edit_admin_permissions_keyboard(target_uid, permissions, page=page),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_toggle_permission_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    
+    # Format: toggle_perm_{uid}_{key}_{page}
+    parts = query.data.split("_")
+    target_uid = int(parts[2])
+    key = parts[3]
+    page = int(parts[4])
+    
+    from database import get_admin, update_admin_permissions, log_admin_activity
+    admin_doc = await get_admin(target_uid)
+    if not admin_doc:
+        await query.answer("Admin not found.", show_alert=True)
+        return
+        
+    permissions = admin_doc.get("permissions", [])
+    if key in permissions:
+        permissions.remove(key)
+        state_str = "revoked"
+    else:
+        permissions.append(key)
+        state_str = "granted"
+        
+    await update_admin_permissions(target_uid, permissions)
+    await query.answer(f"Permission {key} {state_str}.", show_alert=True)
+    
+    # Log owner activity
+    await log_admin_activity(
+        ADMIN_ID, 
+        query.from_user.first_name or "Owner", 
+        "toggle_permission", 
+        f"Toggled permission '{key}' to {state_str.upper()} for admin {admin_doc.get('first_name', 'N/A')} ({target_uid})"
+    )
+
+    from keyboards import edit_admin_permissions_keyboard
+    await query.edit_message_text(
+        f"⚙️ *Manage Permissions*\n\n"
+        f"Admin: *{admin_doc.get('first_name', 'N/A')}* (`{target_uid}`)\n"
+        f"Page: *{page}/2*\n\n"
+        f"Green (🟢) = Access Enabled | Red (🔴) = Blocked",
+        reply_markup=edit_admin_permissions_keyboard(target_uid, permissions, page=page),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_activities_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    
+    # Format: admin_activities_page_{page}
+    page = 1
+    if query.data.startswith("admin_activities_page_"):
+        try:
+            page = int(query.data.replace("admin_activities_page_", ""))
+        except:
+            pass
+
+    from database import get_admin_activities
+    limit = 6
+    offset = (page - 1) * limit
+    # Fetch 7 to check if there is a next page
+    all_activities = await get_admin_activities(limit=offset + limit + 1)
+    page_activities = all_activities[offset:offset + limit]
+    has_next = len(all_activities) > (offset + limit)
+
+    if not page_activities:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_management")]])
+        await query.edit_message_text(
+            "📜 *Admin Activity Logs*\n\n"
+            "Abhi tak koi activity record nahi hui hai.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    text = "📜 *Admin Activity Logs*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+    
+    for act in page_activities:
+        ts = act["timestamp"]
+        # Convert UTC to IST
+        ts_ist = ts.replace(tzinfo=datetime.timezone.utc).astimezone(ist)
+        ts_str = ts_ist.strftime("%d %b %I:%M %p")
+        
+        text += (
+            f"⏰ *{ts_str}*\n"
+            f"👤 Admin: *{act['admin_name']}* (`{act['admin_id']}`)\n"
+            f"⚡ Action: `{act['action'].upper()}`\n"
+            f"📝 Detail: {act['details']}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+        )
+
+    from keyboards import admin_activity_logs_keyboard
+    await query.edit_message_text(text, reply_markup=admin_activity_logs_keyboard(page, has_next), parse_mode="Markdown")
