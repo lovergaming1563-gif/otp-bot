@@ -42,7 +42,7 @@ import json as _json
 from urllib.request import urlopen
 from urllib.parse import quote as _urlquote
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from config import VERIFY_API_KEY, VERIFY_MERCHANT_ID, SUPPORT_USERNAME
+from config import SUPPORT_USERNAME
 from ui import header, card, DIV
 
 _ALOO_API_URL = "https://bharataalu.animeverse23.in/api/v1/verify"
