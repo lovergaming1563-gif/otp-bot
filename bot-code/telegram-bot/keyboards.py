@@ -479,21 +479,7 @@ def admin_logs_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def payment_method_select_keyboard(aloo_amount: float, rocket_amount: float, aloo_enabled: bool = True, rocket_enabled: bool = False):
-    """User selects payment method when both are active.
-    aloo_amount  — amount with random paise (for ALOO uniqueness)
-    rocket_amount — exact amount the user typed (Rocket uses order_id for uniqueness)
-    """
-    keyboard = []
-    if rocket_enabled:
-        keyboard.append([InlineKeyboardButton("🚀  Rocket", callback_data=f"pay_rocket_{rocket_amount}")])
-    if aloo_enabled:
-        keyboard.append([InlineKeyboardButton("💳  ALOO", callback_data=f"pay_aloo_{aloo_amount}")])
-    keyboard.append([InlineKeyboardButton("❌  Cancel", callback_data="main_menu")])
-    return InlineKeyboardMarkup(keyboard)
-
-
-def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bool = False, aloo_enabled: bool = True, rocket_enabled: bool = False):
+def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bool = False, rocket_enabled: bool = False):
     health_label = "🟢 Health Monitor: ON" if health_enabled else "🔴 Health Monitor: OFF"
     maint_label = "🛠 Maintenance: ON 🔴" if maintenance_enabled else "🛠 Maintenance: OFF 🟢"
     keyboard = [
@@ -519,8 +505,7 @@ def admin_settings_keyboard(health_enabled: bool = True, maintenance_enabled: bo
         [InlineKeyboardButton("🔔 Per-Bot Alert Toggle", callback_data="admin_alert_bots")],
         [InlineKeyboardButton("🗑 Remove Group from Monitoring", callback_data="remove_group_monitoring")],
         [InlineKeyboardButton("━━━ Payment Methods ━━━", callback_data="noop")],
-        [InlineKeyboardButton(f"{'🟢' if aloo_enabled else '🔴'} ALOO: {'ON' if aloo_enabled else 'OFF'}", callback_data="toggle_aloo_payment"),
-         InlineKeyboardButton(f"{'🟢' if rocket_enabled else '🔴'} Rocket: {'ON' if rocket_enabled else 'OFF'}", callback_data="toggle_rocket_payment")],
+        [InlineKeyboardButton(f"{'🟢' if rocket_enabled else '🔴'} Rocket: {'ON' if rocket_enabled else 'OFF'}", callback_data="toggle_rocket_payment")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
     ]
     return InlineKeyboardMarkup(keyboard)

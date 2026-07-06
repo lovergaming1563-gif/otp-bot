@@ -43,9 +43,7 @@ IMPORTANT_CHANNEL_URL = "https://t.me/withoutanyinvestmentwork"
 
 UPI_ID = os.environ.get("UPI_ID", "BHARATPE.8B0L1T2H8C56136@fbpe")
 
-# ALOO payment verification
-VERIFY_API_KEY = os.environ.get("VERIFY_API_KEY", "aalu_live_c99ce45d8606417a957b")
-VERIFY_MERCHANT_ID = os.environ.get("VERIFY_MERCHANT_ID", "68129118")
+
 
 # ZapUPI (Rocket) payment
 ZAP_KEY = os.environ.get("ZAP_KEY", "")

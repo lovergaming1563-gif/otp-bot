@@ -16,8 +16,7 @@ from handlers.user_handlers import (
     refund_callback, handle_refund_video, refund_pick_callback,
     service_search_callback, service_page_callback,
     deposit_upi_callback,
-    i_paid_handler, i_paid_retry_handler,
-    pay_aloo_callback, pay_rocket_callback, rocket_paid_handler,
+    pay_rocket_callback, rocket_paid_handler,
     service_request_callback,
     terms_agree_callback, leaderboard_callback, team_callback,
     check_important_join_callback,
@@ -73,7 +72,7 @@ from handlers.admin_handlers import (
     admin_user_notes_callback, admin_add_note_callback, admin_del_note_callback,
     admin_recent_otps_callback,
     diag_command,
-    toggle_aloo_payment_callback, toggle_rocket_payment_callback,
+    toggle_rocket_payment_callback,
     smart_remove_callback, smart_remove_type_callback,
     smart_remove_svc_toggle_callback, smart_remove_svc_all_callback,
     smart_remove_svc_none_callback, smart_remove_svc_confirm_callback,
@@ -216,103 +215,49 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
-        # unique_amount (with random paise) is ONLY for ALOO to identify the exact transfer.
-        # Rocket uses order_id for uniqueness, so it always gets the exact amount the user typed.
-        unique_amount = _generate_unique_amount(amount)   # ALOO only
         exact_amount  = amount                             # Rocket (no paise randomisation)
 
-        context.user_data["deposit_amount"] = unique_amount  # ALOO default
+        context.user_data["deposit_amount"] = exact_amount
         context.user_data["exact_amount"]   = exact_amount
         context.user_data.pop("waiting_for", None)
         context.user_data.pop("paid_check_count", None)
 
-        # ── Check which payment methods are enabled ──
-        settings = await get_settings()
-        aloo_on   = settings.get("aloo_payment_enabled",   True)
-        rocket_on = settings.get("rocket_payment_enabled", False)
-        both_on   = aloo_on and rocket_on
-
-        if both_on:
-            # Show selection — user sees the original amount they typed
-            sel_text = (
-                f"{header('SELECT PAYMENT METHOD', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Payment method choose karo'])}\n\n"
-                f"{DIV}\n"
-                f"👇  Kaunse method se pay karna hai?"
-            )
+        from config import ZAP_KEY
+        import time as _time
+        import asyncio as _asyncio
+        from handlers.user_handlers import _zap_create_order
+        if not ZAP_KEY:
             await update.message.reply_text(
-                sel_text,
-                reply_markup=payment_method_select_keyboard(
-                    aloo_amount=unique_amount,
-                    rocket_amount=exact_amount,
-                    aloo_enabled=aloo_on,
-                    rocket_enabled=rocket_on,
-                ),
+                "⚠️ *Rocket payment configured nahi hai.*\nAdmin se `ZAP_KEY` set karne ko kaho.",
                 parse_mode="Markdown"
             )
-        elif rocket_on and not aloo_on:
-            # Only Rocket — use exact amount (no paise)
-            from config import ZAP_KEY
-            import time as _time
-            import asyncio as _asyncio
-            from handlers.user_handlers import _zap_create_order
-            if not ZAP_KEY:
-                await update.message.reply_text(
-                    "⚠️ *Rocket payment configured nahi hai.*\nAdmin se `ZAP_KEY` set karne ko kaho.",
-                    parse_mode="Markdown"
-                )
-                return
-            context.user_data["deposit_amount"] = exact_amount
-            order_id = f"dep_{update.effective_user.id}_{int(exact_amount * 100)}_{int(_time.time())}"
-            context.user_data["rocket_order_id"] = order_id
-            context.user_data["payment_method"]  = "rocket"
-            wait_msg = await update.message.reply_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
-            result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, exact_amount)
-            if result.get("status") != "success":
-                err_msg = result.get("message", "Order create karne mein error aaya.")
-                await wait_msg.edit_text(
-                    f"❌ *Rocket payment start nahi ho sakti.*\n\n_{err_msg}_",
-                    parse_mode="Markdown"
-                )
-                return
-            payment_url = result.get("payment_url", "")
-            pay_kb = _IKM([
-                [InlineKeyboardButton("🔗 Pay Now — Rocket", url=payment_url)],
-                [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"rocket_paid_{order_id}")],
-                [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
-            ])
-            payment_text = (
-                f"{header(f'PAY ₹{exact_amount:.0f}', '🚀', '🚀')}\n\n"
-                f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
-                f"{DIV}\n"
-                f"⚠️  *Exactly ₹{exact_amount:.0f} hi bhejo.*\n"
-                f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
+            return
+        order_id = f"dep_{update.effective_user.id}_{int(exact_amount * 100)}_{int(_time.time())}"
+        context.user_data["rocket_order_id"] = order_id
+        context.user_data["payment_method"]  = "rocket"
+        wait_msg = await update.message.reply_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
+        result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, exact_amount)
+        if result.get("status") != "success":
+            err_msg = result.get("message", "Order create karne mein error aaya.")
+            await wait_msg.edit_text(
+                f"❌ *Rocket payment start nahi ho sakti.*\n\n_{err_msg}_",
+                parse_mode="Markdown"
             )
-            await wait_msg.edit_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
-        else:
-            # ALOO flow (default — aloo_on=True or neither set)
-            context.user_data["payment_method"] = "aloo"
-            upi_id_dyn = await get_upi_id()
-            upi_line = f"🏦  *UPI ID:*  `{upi_id_dyn}`" if upi_id_dyn else "🏦  *UPI ID:*  _(contact support)_"
-            qr_buf = _make_payment_qr(upi_id_dyn, unique_amount)
-            pay_kb = _IKM([
-                [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"i_paid_{unique_amount}")],
-                [InlineKeyboardButton("❌ Cancel",            callback_data="main_menu")],
-            ])
-            payment_text = (
-                f"{header(f'PAY ₹{unique_amount:.2f}', '💳', '💳')}\n\n"
-                f"{card([f'💰  *Exact Amount:*  ₹{unique_amount:.2f}', upi_line, '📲  Kisi bhi UPI app se payment karo'])}\n\n"
-                f"{DIV}\n"
-                f"⚠️  *Exactly ₹{unique_amount:.2f} hi bhejo* — ye unique amount sirf aapke liye hai.\n"
-                f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
-            )
-            if qr_buf:
-                try:
-                    await update.message.reply_photo(photo=qr_buf, caption=payment_text, reply_markup=pay_kb, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
-            else:
-                await update.message.reply_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
+            return
+        payment_url = result.get("payment_url", "")
+        pay_kb = _IKM([
+            [InlineKeyboardButton("🔗 Pay Now — Rocket", url=payment_url)],
+            [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"rocket_paid_{order_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
+        ])
+        payment_text = (
+            f"{header(f'PAY ₹{exact_amount:.0f}', '🚀', '🚀')}\n\n"
+            f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
+            f"{DIV}\n"
+            f"⚠️  *Exactly ₹{exact_amount:.0f} hi bhejo.*\n"
+            f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
+        )
+        await wait_msg.edit_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
         return
     await update.message.reply_text("Use the menu buttons to navigate.")
 
@@ -958,13 +903,11 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_recent_otps_callback, pattern="^admin_recent_otps$"))
     app.add_handler(CallbackQueryHandler(deposit_upi_callback, pattern="^deposit_upi$"))
 
-    # Rocket / ALOO payment method selection
-    app.add_handler(CallbackQueryHandler(pay_aloo_callback,    pattern="^pay_aloo_"))
+    # Rocket payment method selection
     app.add_handler(CallbackQueryHandler(pay_rocket_callback,  pattern="^pay_rocket_"))
     app.add_handler(CallbackQueryHandler(rocket_paid_handler,  pattern="^rocket_paid_"))
 
     # Admin payment method toggles
-    app.add_handler(CallbackQueryHandler(toggle_aloo_payment_callback,   pattern="^toggle_aloo_payment$"))
     app.add_handler(CallbackQueryHandler(toggle_rocket_payment_callback, pattern="^toggle_rocket_payment$"))
 
     app.add_handler(CallbackQueryHandler(refund_callback, pattern="^refund$"))

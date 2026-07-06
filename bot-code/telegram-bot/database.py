@@ -149,7 +149,15 @@ async def sms_cache_get(utr: str):
         return None
 
 
-async def get_user(user_id: int):
+async def get_user(user_id):
+    try:
+        uid_int = int(user_id)
+        uid_str = str(user_id)
+        res = await db.users.find_one({"$or": [{"user_id": uid_int}, {"user_id": uid_str}]})
+        if res:
+            return res
+    except Exception:
+        pass
     return await db.users.find_one({"user_id": user_id})
 
 

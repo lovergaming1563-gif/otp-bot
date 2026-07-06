@@ -535,9 +535,7 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     import os
     qr_display = "✅ Set" if os.path.exists("qr.png") else "❌ Not uploaded"
     # Payment method toggles
-    aloo_enabled = settings.get("aloo_payment_enabled", True)
     rocket_enabled = settings.get("rocket_payment_enabled", False)
-    aloo_status = "🟢 ON" if aloo_enabled else "🔴 OFF"
     rocket_status = "🟢 ON" if rocket_enabled else "🔴 OFF"
     text = (
         f"⚙️ *Settings*\n\n"
@@ -553,7 +551,7 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
         f"📡 OTP Group: {group_display}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💳 *Payment Methods*\n"
-        f"ALOO: {aloo_status}  |  Rocket: {rocket_status}\n\n"
+        f"Rocket: {rocket_status}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🛠 *Maintenance Mode*: {m_status}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -563,24 +561,12 @@ async def admin_settings_callback(update: Update, context: ContextTypes.DEFAULT_
         f"🔔 Reminder Gap: {h_reminder} min\n"
         f"🤖 Bot Active Window: {h_window} min\n"
     )
-    await query.edit_message_text(text, reply_markup=admin_settings_keyboard(h_enabled, m_enabled, aloo_enabled, rocket_enabled), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=admin_settings_keyboard(h_enabled, m_enabled, rocket_enabled), parse_mode="Markdown")
 
 
 # ============================================================================
 # Payment Method Toggles (admin)
 # ============================================================================
-
-async def toggle_aloo_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not is_admin(query.from_user.id):
-        return
-    settings = await get_settings()
-    current = settings.get("aloo_payment_enabled", True)
-    await update_settings("aloo_payment_enabled", not current)
-    new_label = "🟢 ON" if not current else "🔴 OFF"
-    await query.answer(f"ALOO payment: {new_label}", show_alert=True)
-    await admin_settings_callback(update, context)
 
 
 async def toggle_rocket_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2518,14 +2504,45 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "search_user":
         try:
             import re as _re
-            cleaned = _re.sub(r'[^\d]', '', text)
-            uid = int(cleaned)
-            await show_admin_user_info(update, context, uid, is_callback=False)
-            context.user_data.pop("admin_action", None)
+            query_str = text.strip()
+            if query_str.startswith('@'):
+                query_str = query_str[1:]
+
+            # 1. Search by User ID (int or str)
+            from database import get_user, db
+            db_user = None
+            if query_str.isdigit():
+                db_user = await get_user(int(query_str))
+
+            # 2. Search by Username
+            if not db_user:
+                db_user = await db.users.find_one({"username": {"$regex": f"^{_re.escape(query_str)}$", "$options": "i"}})
+
+            # 3. Search by First Name
+            if not db_user:
+                db_user = await db.users.find_one({"first_name": {"$regex": f"^{_re.escape(query_str)}$", "$options": "i"}})
+
+            if db_user:
+                await show_admin_user_info(update, context, db_user["user_id"], is_callback=False)
+                context.user_data.pop("admin_action", None)
+            else:
+                # If numeric, also try string representation in get_user, but we already did that.
+                # Explain that they might not be registered.
+                await update.message.reply_text(
+                    f"❌ *User details nahi mile.*\n\n"
+                    f"Search Query: `{text}`\n\n"
+                    f"💡 *Possible Reasons:*\n"
+                    f"1. Is user ne bot ko kabhi `/start` nahi kiya hai (isliye database mein entry nahi bani).\n"
+                    f"2. ID ya Username galat enter kiya hai.",
+                    parse_mode="Markdown"
+                )
+                context.user_data.pop("admin_action", None)
         except Exception as e:
             await update.message.reply_text(
-                f"Could not find user. Enter a plain numeric ID (e.g. 6928507193). Error: {e}"
+                f"❌ Search karne mein error aaya: `{e}`",
+                parse_mode="Markdown"
             )
+            context.user_data.pop("admin_action", None)
 
     elif action == "set_streak":
         try:
