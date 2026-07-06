@@ -446,7 +446,8 @@ async def send_daily_report(context):
     try:
         data = await get_daily_revenue()
         stats = await get_stats()
-        today = __import__("datetime").datetime.utcnow()
+        import zoneinfo
+        today = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata"))
         date_str = today.strftime("%d %b %Y")
         msg = (
             f"📊 *Daily Report — {date_str}*\n"
@@ -573,7 +574,7 @@ async def thursday_reminder_job(context: ContextTypes.DEFAULT_TYPE):
                 pass
 
 
-async def sunday_2hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
+async def saturday_2hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
     from database import get_settings, get_all_users, compute_referral_lock
     settings = await get_settings()
     if not settings.get("reminder_sunday_2hr_enabled", True):
@@ -599,7 +600,7 @@ async def sunday_2hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
                 pass
 
 
-async def sunday_1hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
+async def saturday_1hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
     from database import get_settings, get_all_users, compute_referral_lock
     settings = await get_settings()
     if not settings.get("reminder_sunday_1hr_enabled", True):
@@ -680,16 +681,16 @@ async def post_init(application: Application):
             name="thursday_reminder"
         )
         job_queue.run_daily(
-            sunday_2hr_reminder_job,
+            saturday_2hr_reminder_job,
             time=_dt.time(hour=22, minute=0, second=0, tzinfo=IST),
-            days=(6,),
-            name="sunday_2hr_reminder"
+            days=(5,),
+            name="saturday_2hr_reminder"
         )
         job_queue.run_daily(
-            sunday_1hr_reminder_job,
+            saturday_1hr_reminder_job,
             time=_dt.time(hour=23, minute=0, second=0, tzinfo=IST),
-            days=(6,),
-            name="sunday_1hr_reminder"
+            days=(5,),
+            name="saturday_1hr_reminder"
         )
         
         logger.info(f"[BOOT] ✅ All jobs scheduled in IST. Admins: {ADMIN_IDS}")

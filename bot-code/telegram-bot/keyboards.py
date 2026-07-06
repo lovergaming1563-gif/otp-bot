@@ -796,8 +796,8 @@ def admin_feature_settings_keyboard(settings: dict):
         [InlineKeyboardButton("🏆 3rd Prize", callback_data="set_leaderboard_prize3")],
         
         [InlineKeyboardButton(f"🔔 Thu Rem: {'ON 🟢' if rem_thurs else 'OFF 🔴'}", callback_data="toggle_rem_thurs"),
-         InlineKeyboardButton(f"🔔 Sun 2hr Rem: {'ON 🟢' if rem_sun2h else 'OFF 🔴'}", callback_data="toggle_rem_sun2h")],
-        [InlineKeyboardButton(f"🔔 Sun 1hr Rem: {'ON 🟢' if rem_sun1h else 'OFF 🔴'}", callback_data="toggle_rem_sun1h")],
+         InlineKeyboardButton(f"🔔 Sat 2hr Rem: {'ON 🟢' if rem_sun2h else 'OFF 🔴'}", callback_data="toggle_rem_sun2h")],
+        [InlineKeyboardButton(f"🔔 Sat 1hr Rem: {'ON 🟢' if rem_sun1h else 'OFF 🔴'}", callback_data="toggle_rem_sun1h")],
         
         [InlineKeyboardButton(f"🎉 Welcome: {'ON 🟢' if welcome_enabled else 'OFF 🔴'}", callback_data="toggle_welcome_enabled"),
          InlineKeyboardButton("🎉 Welcome Min", callback_data="set_welcome_min")],

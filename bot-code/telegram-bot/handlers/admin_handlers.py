@@ -1,4 +1,5 @@
 import datetime
+from zoneinfo import ZoneInfo
 import logging
 logger = logging.getLogger(__name__)
 from telegram import Update
@@ -533,7 +534,10 @@ async def log_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text = f"📜 *{log_type.replace('_', ' ').title()} Logs (last {len(logs)}):*\n\n"
         for log in logs:
-            t = log.get("created_at", datetime.datetime.utcnow()).strftime("%d %b %H:%M")
+            created_at = log.get("created_at") or datetime.datetime.utcnow()
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+            t = created_at.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %I:%M %p")
             uid = log.get("user_id", "N/A")
             text += f"• UID: `{uid}` — {t}\n"
 
@@ -800,7 +804,12 @@ async def admin_used_utrs_callback(update: Update, context: ContextTypes.DEFAULT
         lines = []
         for i, r in enumerate(rows, 1):
             ts = r.get("created_at")
-            ts_str = ts.strftime("%d-%b %H:%M") if ts else "?"
+            if ts:
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=datetime.timezone.utc)
+                ts_str = ts.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d-%b %I:%M%p")
+            else:
+                ts_str = "?"
             uid = r.get("user_id", "?")
             amt = r.get("amount", 0)
             utr = r.get("utr", "?")
@@ -2030,7 +2039,9 @@ async def admin_users_export_callback(update, context):
             "channel_verified": bool(u.get('channel_verified', False)),
         }
 
-    now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M")
+    now_ist = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+    now_str = now_ist.strftime("%Y-%m-%d_%H-%M")
+    now_display = now_ist.strftime("%d %b %Y, %I:%M %p")
     filename = f"users_backup_{now_str}.json"
     json_bytes = json.dumps(export_data, ensure_ascii=False, indent=2).encode('utf-8')
     file_obj = io.BytesIO(json_bytes)
@@ -2042,7 +2053,7 @@ async def admin_users_export_callback(update, context):
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👥 Total users: *{len(export_data)}*\n"
         f"💰 Total wallet balance: *{format_balance(total_bal)}*\n"
-        f"🕒 Exported at: `{now_str} UTC`\n\n"
+        f"🕒 Exported at: `{now_display} (IST)`\n\n"
         f"_Yeh file backup ke liye safe rakh lo._"
     )
 
@@ -3803,7 +3814,12 @@ async def promo_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     status = "✅ Active" if promo.get("active", True) else "❌ Disabled"
     total_paid = claimed * float(promo.get("amount", 0))
     created = promo.get("created_at")
-    created_str = created.strftime("%d %b %Y, %H:%M") if created else "—"
+    if created:
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=datetime.timezone.utc)
+        created_str = created.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p")
+    else:
+        created_str = "—"
     text = (
         f"🎁 *Promo Code Details*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -4979,7 +4995,12 @@ async def admin_user_notes_callback(update: Update, context: ContextTypes.DEFAUL
     if notes:
         for i, note in enumerate(notes):
             ts = note.get("created_at")
-            ts_str = ts.strftime("%d %b %Y, %H:%M") if ts else "N/A"
+            if ts:
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=datetime.timezone.utc)
+                ts_str = ts.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p")
+            else:
+                ts_str = "N/A"
             safe_text = note['text'].replace('`', "'").replace('*', '').replace('_', '-')
             lines.append(f"{i+1}. {safe_text}\n   _{ts_str}_")
     else:
@@ -5034,7 +5055,12 @@ async def admin_del_note_callback(update: Update, context: ContextTypes.DEFAULT_
     if notes:
         for i, note in enumerate(notes):
             ts = note.get("created_at")
-            ts_str = ts.strftime("%d %b %Y, %H:%M") if ts else "N/A"
+            if ts:
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=datetime.timezone.utc)
+                ts_str = ts.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p")
+            else:
+                ts_str = "N/A"
             safe_text = note['text'].replace('`', "'").replace('*', '').replace('_', '-')
             lines.append(f"{i+1}. {safe_text}\n   _{ts_str}_")
     else:
@@ -5093,7 +5119,12 @@ async def admin_recent_otps_callback(update: Update, context: ContextTypes.DEFAU
         otp_rcvd = s.get("otp_count_received", 0)
         price    = s.get("price")
         ts       = s.get("created_at")
-        ts_str   = ts.strftime("%d/%m %H:%M") if ts else "N/A"
+        if ts:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=datetime.timezone.utc)
+            ts_str = ts.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d/%m %I:%M%p")
+        else:
+            ts_str = "N/A"
         icon     = status_icons.get(status, "❓")
 
         price_str = f" ₹{price:.0f}" if price else ""
@@ -5226,7 +5257,10 @@ async def show_admin_user_info(update: Update, context: ContextTypes.DEFAULT_TYP
     if referred_users:
         referred_str = ", ".join([f"{u.get('first_name', 'N/A')} (`{u['user_id']}`)" for u in referred_users])
         
-    join_date = db_user.get("join_date", datetime.datetime.utcnow()).strftime("%d %b %Y")
+    join_dt = db_user.get("join_date") or datetime.datetime.utcnow()
+    if join_dt.tzinfo is None:
+        join_dt = join_dt.replace(tzinfo=datetime.timezone.utc)
+    join_date = join_dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p")
     uname = db_user.get("username") or ""
     uname_str = f"@{uname}" if uname else "None"
     
@@ -5341,10 +5375,10 @@ async def send_feature_settings_screen(send_func, settings: dict):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🔄 *Weekly Reset*\n"
         f"Status: {weekly_reset_status}\n"
-        f"Reset Scheduled: Every Sunday 00:00 IST\n"
+        f"Reset Scheduled: Every Sunday 00:00 IST (Saturday Midnight)\n"
         f"Thursday Reminder: {thursday_reminder_status}\n"
-        f"Sunday 2hr Reminder: {sunday_2hr_reminder_status}\n"
-        f"Sunday 1hr Reminder: {sunday_1hr_reminder_status}\n"
+        f"Saturday 2hr Reminder: {sunday_2hr_reminder_status}\n"
+        f"Saturday 1hr Reminder: {sunday_1hr_reminder_status}\n"
     )
     await send_func(text, reply_markup=admin_feature_settings_keyboard(settings), parse_mode="Markdown")
 
@@ -5541,7 +5575,7 @@ async def admin_suspicious_callback(update: Update, context: ContextTypes.DEFAUL
         f"🚨 *Suspicious Activity Flags* (1 of {total})\n\n"
         f"👤 *New User ID:* `{flag['new_user_id']}`\n"
         f"📱 *Device ID:* `{flag['device_id']}`\n"
-        f"📅 *Flagged At:* {flag['flagged_at'].strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
+        f"📅 *Flagged At:* {flag['flagged_at'].replace(tzinfo=datetime.timezone.utc).astimezone(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S')} (IST)\n\n"
         f"🔗 *Linked Accounts:* {len(flag['linked_user_ids'])}\n"
         + "\n".join([f"• `{uid}`" for uid in flag['linked_user_ids']]) +
         f"\n\nActions:"
