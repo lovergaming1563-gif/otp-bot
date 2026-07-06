@@ -1028,7 +1028,10 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"{DIV}\n"
                 f"📲  _OTP aate hi tujhe message aayega_"
             )
-            await query.edit_message_text(text, reply_markup=waiting_keyboard(), parse_mode="Markdown")
+            sent_msg = await query.edit_message_text(text, reply_markup=waiting_keyboard(), parse_mode="Markdown")
+            if sent_msg and hasattr(sent_msg, "message_id"):
+                from database import update_session_message_id
+                await update_session_message_id(user_id, sent_msg.message_id)
 
             context.job_queue.run_once(
                 auto_cancel_expired,
@@ -1047,7 +1050,10 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"{DIV}\n"
                 f"🙏  _Patience rakh, jaldi hojayega_"
             )
-            await query.edit_message_text(text, reply_markup=waiting_keyboard(), parse_mode="Markdown")
+            sent_msg = await query.edit_message_text(text, reply_markup=waiting_keyboard(), parse_mode="Markdown")
+            if sent_msg and hasattr(sent_msg, "message_id"):
+                from database import update_session_message_id
+                await update_session_message_id(user_id, sent_msg.message_id)
 
             for _aid in ADMIN_IDS:
                 try:
@@ -1158,17 +1164,30 @@ async def auto_cancel_expired(context: ContextTypes.DEFAULT_TYPE):
             pass
         await update_session_status(user_id, "delivered")
         await add_log("cancelled", {"user_id": user_id, "service": service_name, "reason": "expired_after_otp", "number": number, "otp_count_received": received})
-        try:
-            done_text = (
-                f"{header('TIME UP — ORDER DONE', '⏰', '✅')}\n\n"
-                f"{card([f'📩  Total OTP delivered:  *{received}*', '✅  Order successfully complete'])}\n\n"
-                f"{DIV}\n"
-                f"🙏  _Naya order ke liye menu use karo_"
-            )
-            await context.bot.send_message(chat_id=user_id, text=done_text,
-                                            reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        except:
-            pass
+        done_text = (
+            f"{header('TIME UP — ORDER DONE', '⏰', '✅')}\n\n"
+            f"{card([f'📩  Total OTP delivered:  *{received}*', '✅  Order successfully complete'])}\n\n"
+            f"{DIV}\n"
+            f"🙏  _Naya order ke liye menu use karo_"
+        )
+        message_id = session.get("message_id")
+        if message_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=message_id,
+                    text=done_text,
+                    reply_markup=main_menu_keyboard(),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Failed to edit auto-expire message: {e}")
+        else:
+            try:
+                await context.bot.send_message(chat_id=user_id, text=done_text,
+                                                reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+            except:
+                pass
         return
 
     if number:
@@ -1181,18 +1200,31 @@ async def auto_cancel_expired(context: ContextTypes.DEFAULT_TYPE):
     await update_session_status(user_id, "expired")
     await add_log("cancelled", {"user_id": user_id, "service": service_name, "reason": "expired", "number": number})
 
-    try:
-        exp_text = (
-            f"{header('OTP TIME EXPIRED', '⏰', '⏰')}\n\n"
-            f"😔  Time limit ke andar koi OTP nahi aaya\n\n"
-            f"{card(['💰  *Aapka balance refund ho gaya*', '🔄  Number wapas stock mein gaya', '✅  Aap turant naya order kar sakte ho'])}\n\n"
-            f"{DIV}\n"
-            f"👇  Try again from menu"
-        )
-        await context.bot.send_message(chat_id=user_id, text=exp_text,
-                                        reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-    except:
-        pass
+    exp_text = (
+        f"{header('OTP TIME EXPIRED', '⏰', '⏰')}\n\n"
+        f"😔  Time limit ke andar koi OTP nahi aaya\n\n"
+        f"{card(['💰  *Aapka balance refund ho gaya*', '🔄  Number wapas stock mein gaya', '✅  Aap turant naya order kar sakte ho'])}\n\n"
+        f"{DIV}\n"
+        f"👇  Try again from menu"
+    )
+    message_id = session.get("message_id")
+    if message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=user_id,
+                message_id=message_id,
+                text=exp_text,
+                reply_markup=main_menu_keyboard(),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Failed to edit auto-expire message: {e}")
+    else:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=exp_text,
+                                            reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        except:
+            pass
 
 
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

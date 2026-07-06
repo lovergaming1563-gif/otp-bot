@@ -3183,11 +3183,36 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             context.user_data.pop("admin_action", None)
 
+            # Edit original waiting message
+            message_id = session.get("message_id")
+            if message_id:
+                try:
+                    price_str = format_balance(price)
+                    service_val = session.get("service", "Myntra")
+                    number_val = session.get("number", "N/A")
+                    delivered_text = (
+                        f"{header('ORDER COMPLETE', '✅', '✅')}\n\n"
+                        f"{field('Service', f'`{service_val}`', '🎯')}\n"
+                        f"{field('Number', f'`{number_val}`', '📱')}\n"
+                        f"{field('Charged', f'*{price_str}*', '💰')}\n\n"
+                        f"{card(['🏁  *Status:*  Delivered ✅', '', f'🔐  OTP Code:  `{otp_message}`'])}\n\n"
+                        f"{DIV}\n"
+                        f"✅  _OTP successfully delivered to your private chat._"
+                    )
+                    await context.bot.edit_message_text(
+                        chat_id=target_uid,
+                        message_id=message_id,
+                        text=delivered_text,
+                        reply_markup=None,
+                        parse_mode="Markdown"
+                    )
+                except Exception as me:
+                    logger.warning(f"Failed to edit waiting message {message_id} on manual OTP: {me}")
+
             try:
                 await context.bot.send_message(
                     chat_id=target_uid,
                     text=f"✅ *OTP Received!*\n\n{otp_message}",
-                    reply_markup=main_menu_keyboard(),
                     parse_mode="Markdown"
                 )
             except:
@@ -6037,3 +6062,253 @@ async def admin_activities_callback(update: Update, context: ContextTypes.DEFAUL
 
     from keyboards import admin_activity_logs_keyboard
     await query.edit_message_text(text, reply_markup=admin_activity_logs_keyboard(page, has_next), parse_mode="Markdown")
+
+
+# ============================================================================
+# 📈 OTP SALES STATS DASHBOARD (Today / Yesterday)
+# ============================================================================
+
+async def admin_sales_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "stats"):
+        await query.answer("❌ Access Denied: Aapko Stats dekhne ka access nahi hai.", show_alert=True)
+        return
+
+    text = (
+        "📈 *OTP Sales Stats Dashboard*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Choose a calendar day (IST boundaries) to view the sales analysis for each service:"
+    )
+    from keyboards import admin_sales_stats_main_keyboard
+    await query.edit_message_text(text, reply_markup=admin_sales_stats_main_keyboard(), parse_mode="Markdown")
+
+
+async def admin_sales_stats_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "stats"):
+        await query.answer("❌ Access Denied.", show_alert=True)
+        return
+
+    # Pattern: admin_sales_view_{day_offset}_{page}
+    parts = query.data.split("_")
+    day_offset = int(parts[3])
+    page = int(parts[4])
+
+    from database import get_service_sales_stats
+    from keyboards import admin_sales_stats_view_keyboard
+    from zoneinfo import ZoneInfo
+    import datetime as _dt
+
+    # Get IST boundaries
+    ist = ZoneInfo("Asia/Kolkata")
+    now_ist = _dt.datetime.now(ist)
+    target_day = now_ist + _dt.timedelta(days=day_offset)
+    
+    start_ist = target_day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_ist = start_ist + _dt.timedelta(days=1)
+    
+    start_utc = start_ist.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+    end_utc = end_ist.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+
+    sales = await get_service_sales_stats(start_utc, end_utc)
+
+    day_label = "TODAY" if day_offset == 0 else "YESTERDAY"
+    day_date_str = target_day.strftime("%d %b")
+
+    if not sales:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_sales_stats")]])
+        await query.edit_message_text(
+            f"📈 *Sales Stats: {day_label} ({day_date_str})*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Abhi tak is day ke koi sales records nahi mile.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Paginate services list
+    limit = 10
+    offset = (page - 1) * limit
+    page_sales = sales[offset:offset + limit]
+    has_next = len(sales) > (offset + limit)
+
+    text = (
+        f"📈 *Sales Stats: {day_label} ({day_date_str})*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    total_orders = sum(s["count"] for s in sales)
+    total_rev = sum(s["revenue"] for s in sales)
+
+    for i, s in enumerate(page_sales, offset + 1):
+        text += f"{i}. *{s['_id']}* › `{s['count']} orders` (₹{s['revenue']:.2f})\n"
+
+    text += (
+        f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Page *{page}* of {(len(sales) + limit - 1) // limit}\n"
+        f"💰 Total Orders: *{total_orders}*\n"
+        f"💸 Total Revenue: *{format_balance(total_rev)}*"
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_sales_stats_view_keyboard(day_offset, page, has_next),
+        parse_mode="Markdown"
+    )
+
+
+# ============================================================================
+# 👥 ADMIN REFERRAL EXPLORER (Users-only permission)
+# ============================================================================
+
+async def admin_referral_explorer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "users"):
+        await query.answer("❌ Access Denied: Aapko Users Explorer ka access nahi hai.", show_alert=True)
+        return
+
+    # Pattern: admin_referrals_{page}
+    page = 1
+    if query.data.startswith("admin_referrals_"):
+        try:
+            page = int(query.data.replace("admin_referrals_", ""))
+        except:
+            pass
+
+    from database import get_all_referrers
+    from keyboards import admin_referrals_list_keyboard
+
+    referrers = await get_all_referrers()
+
+    if not referrers:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")]])
+        await query.edit_message_text(
+            "👥 *Referral Explorer*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Abhi tak kisi bhi user ne kisi ko refer nahi kiya hai.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Paginate referrers (8 per page)
+    limit = 8
+    offset = (page - 1) * limit
+    page_referrers = referrers[offset:offset + limit]
+    has_next = len(referrers) > (offset + limit)
+
+    text = (
+        "👥 *Referral Explorer*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Neeche un referrers ki list hai jinhone users ko refer kiya hai.\n"
+        "Click on any referrer to see exactly whom they referred:\n\n"
+        f"_Total Referrers: {len(referrers)}_"
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_referrals_list_keyboard(page_referrers, page, has_next),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_referrer_details_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    if not check_permission(query.from_user.id, "users"):
+        await query.answer("❌ Access Denied.", show_alert=True)
+        return
+
+    # Pattern: ref_details_{referrer_id}_{page}
+    parts = query.data.split("_")
+    referrer_id = int(parts[2])
+    page = int(parts[3])
+
+    from database import get_user, get_referred_users
+    from keyboards import admin_referrer_details_keyboard
+
+    referrer_doc = await get_user(referrer_id)
+    if not referrer_doc:
+        await query.answer("Referrer not found in database.", show_alert=True)
+        return
+
+    referred_users = await get_referred_users(referrer_id)
+
+    name = referrer_doc.get("first_name", "User")
+    uname = referrer_doc.get("username", "")
+    label = f"{name} (`{referrer_id}`)" if not uname else f"{name} (@{uname}) (`{referrer_id}`)"
+
+    if not referred_users:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_referrals_1")]])
+        await query.edit_message_text(
+            f"👤 *Referrals by {name}:*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Referrer: {label}\n\n"
+            f"Koi referred users nahi mile.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Paginate referred users (5 per page)
+    limit = 5
+    offset = (page - 1) * limit
+    page_referred = referred_users[offset:offset + limit]
+    has_next = len(referred_users) > (offset + limit)
+
+    text = (
+        f"👤 *Referrals by {name}*\n"
+        f"Referrer: {label}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+
+    for i, u in enumerate(page_referred, offset + 1):
+        u_name = u.get("first_name", "User")
+        u_uname = u.get("username", "")
+        u_label = f"*{u_name}*" if not u_uname else f"*{u_name}* (@{u_uname})"
+        
+        join_dt = u.get("join_date")
+        if join_dt:
+            # Convert to IST
+            join_ist = join_dt.replace(tzinfo=datetime.timezone.utc).astimezone(ist)
+            join_str = join_ist.strftime("%d %b %I:%M %p")
+        else:
+            join_str = "N/A"
+            
+        status = "🔴 BANNED" if u.get("banned", False) else "🟢 ACTIVE"
+        text += (
+            f"{i}. {u_label} (`{u['user_id']}`)\n"
+            f"   • Joined: `{join_str}`\n"
+            f"   • Balance: `₹{u.get('balance', 0.0):.2f}`\n"
+            f"   • Status: `{status}`\n\n"
+        )
+
+    text += (
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Page *{page}* of {(len(referred_users) + limit - 1) // limit}\n"
+        f"👥 Total Referred: *{len(referred_users)}*"
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_referrer_details_keyboard(referrer_id, page, has_next),
+        parse_mode="Markdown"
+    )
+

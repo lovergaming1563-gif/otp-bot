@@ -245,9 +245,16 @@ def admin_main_keyboard(user_id: int = None):
     if row10:
         keyboard.append(row10)
 
-    # Row 11: Last 50 OTPs
+    # Row 11: Last 50 OTPs, Sales Stats, Refer Explorer
+    row11 = []
     if has_p("recent_otps"):
-        keyboard.append([InlineKeyboardButton("📋 Last 50 OTPs", callback_data="admin_recent_otps")])
+        row11.append(InlineKeyboardButton("📋 Last 50 OTPs", callback_data="admin_recent_otps"))
+    if has_p("stats"):
+        row11.append(InlineKeyboardButton("📈 Sales Stats", callback_data="admin_sales_stats"))
+    if has_p("users"):
+        row11.append(InlineKeyboardButton("👥 Refer Explorer", callback_data="admin_referrals_1"))
+    if row11:
+        keyboard.append(row11)
 
     # Owner-Only Admin Management Button
     if is_owner:
@@ -867,4 +874,66 @@ def sold_clear_confirm_keyboard(service: str = None):
         [InlineKeyboardButton(label,        callback_data=yes_cb)],
         [InlineKeyboardButton("❌ Cancel",  callback_data="admin_sold_otp")],
     ])
+
+
+def admin_sales_stats_main_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📅 Today's Sales", callback_data="admin_sales_view_0_1"),
+         InlineKeyboardButton("📅 Yesterday's Sales", callback_data="admin_sales_view_-1_1")],
+        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_sales_stats_view_keyboard(day_offset: int, page: int, has_next: bool):
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"admin_sales_view_{day_offset}_{page-1}"))
+    nav.append(InlineKeyboardButton(f"📄 Page {page}", callback_data="noop"))
+    if has_next:
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"admin_sales_view_{day_offset}_{page+1}"))
+    
+    keyboard = [
+        nav,
+        [InlineKeyboardButton("🔙 Back to Sales Menu", callback_data="admin_sales_stats")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referrals_list_keyboard(referrers_page, page: int, has_next: bool):
+    keyboard = []
+    for r in referrers_page:
+        uid = r["user_id"]
+        name = r.get("first_name", "User")
+        uname = r.get("username", "")
+        count = r.get("total_referrals", 0)
+        label = f"{name} ({count} Refs)" if not uname else f"{name} (@{uname}) ({count} Refs)"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"ref_details_{uid}_1")])
+    
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"admin_referrals_{page-1}"))
+    nav.append(InlineKeyboardButton(f"📄 Page {page}", callback_data="noop"))
+    if has_next:
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"admin_referrals_{page+1}"))
+    keyboard.append(nav)
+    
+    keyboard.append([InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referrer_details_keyboard(referrer_id: int, page: int, has_next: bool):
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"ref_details_{referrer_id}_{page-1}"))
+    nav.append(InlineKeyboardButton(f"📄 Page {page}", callback_data="noop"))
+    if has_next:
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"ref_details_{referrer_id}_{page+1}"))
+    
+    keyboard = [
+        nav,
+        [InlineKeyboardButton("🔙 Back to Referrers List", callback_data="admin_referrals_1")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 

@@ -2189,3 +2189,51 @@ async def get_admin_activities(limit: int = 50) -> list:
         logger.error(f"[RBAC] Failed to fetch admin activities: {e}")
         return []
 
+
+async def update_session_message_id(user_id: int, message_id: int):
+    try:
+        await db.sessions.update_one(
+            {"user_id": user_id, "status": "waiting"},
+            {"$set": {"message_id": message_id}}
+        )
+    except Exception as e:
+        logger.error(f"[DB] Failed to update session message_id: {e}")
+
+
+async def get_service_sales_stats(start_date: datetime.datetime, end_date: datetime.datetime) -> list:
+    try:
+        pipeline = [
+            {"$match": {
+                "type": "otp_delivered",
+                "timestamp": {"$gte": start_date, "$lt": end_date}
+            }},
+            {"$group": {
+                "_id": "$data.service",
+                "count": {"$sum": 1},
+                "revenue": {"$sum": {"$ifNull": ["$data.price", 0.0]}}
+            }},
+            {"$sort": {"count": -1}}
+        ]
+        cursor = db.logs.aggregate(pipeline)
+        return await cursor.to_list(None)
+    except Exception as e:
+        logger.error(f"[DB] Failed to aggregate service sales stats: {e}")
+        return []
+
+
+async def get_all_referrers() -> list:
+    try:
+        return await db.users.find({"total_referrals": {"$gt": 0}}).sort("total_referrals", -1).to_list(None)
+    except Exception as e:
+        logger.error(f"[DB] Failed to get all referrers: {e}")
+        return []
+
+
+async def get_referred_users(referrer_id: int) -> list:
+    try:
+        return await db.users.find({"referrer_id": referrer_id}).sort("join_date", -1).to_list(None)
+    except Exception as e:
+        logger.error(f"[DB] Failed to get referred users: {e}")
+        return []
+
+

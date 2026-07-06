@@ -92,6 +92,8 @@ from handlers.admin_handlers import (
     admin_management_callback, admin_add_callback, admin_list_callback,
     admin_delete_callback, admin_edit_permissions_callback,
     admin_toggle_permission_callback, admin_activities_callback,
+    admin_sales_stats_callback, admin_sales_stats_view_callback,
+    admin_referral_explorer_callback, admin_referrer_details_callback,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -986,6 +988,14 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_edit_permissions_callback, pattern="^edit_perm_"))
     app.add_handler(CallbackQueryHandler(admin_toggle_permission_callback, pattern="^toggle_perm_"))
     app.add_handler(CallbackQueryHandler(admin_activities_callback, pattern="^admin_activities"))
+
+    # Admin Sales Stats Callbacks
+    app.add_handler(CallbackQueryHandler(admin_sales_stats_callback, pattern="^admin_sales_stats$"))
+    app.add_handler(CallbackQueryHandler(admin_sales_stats_view_callback, pattern="^admin_sales_view_"))
+
+    # Admin Referral Explorer Callbacks
+    app.add_handler(CallbackQueryHandler(admin_referral_explorer_callback, pattern="^admin_referrals_"))
+    app.add_handler(CallbackQueryHandler(admin_referrer_details_callback, pattern="^ref_details_"))
 
     app.add_handler(MessageHandler(
         (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.VIDEO) & filters.ChatType.PRIVATE & ~filters.COMMAND,

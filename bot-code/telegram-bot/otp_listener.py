@@ -541,11 +541,36 @@ async def group_message_listener(update: Update, context: ContextTypes.DEFAULT_T
         received=received, total=total, is_last=is_last
     )
 
+    message_id = session.get("message_id")
+    if message_id:
+        try:
+            from database import format_balance
+            from ui import header, field, card, DIV
+            price_str = format_balance(price)
+            delivered_text = (
+                f"{header('ORDER COMPLETE', '✅', '✅')}\n\n"
+                f"{field('Service', f'`{service_name}`', '🎯')}\n"
+                f"{field('Number', f'`{number}`', '📱')}\n"
+                f"{field('Charged', f'*{price_str}*', '💰')}\n\n"
+                f"{card(['🏁  *Status:*  Delivered ✅', '', f'🔐  OTP Code:  `{otp_code}`'])}\n\n"
+                f"{DIV}\n"
+                f"✅  _OTP successfully delivered to your private chat._"
+            )
+            await context.bot.edit_message_text(
+                chat_id=user_id,
+                message_id=message_id,
+                text=delivered_text,
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+            logger.info(f"[FLOW] Edited waiting message {message_id} to complete for user {user_id}")
+        except Exception as me:
+            logger.warning(f"[FLOW] Failed to edit waiting message {message_id} for user {user_id}: {me}")
+
     try:
         await context.bot.send_message(
             chat_id=user_id,
             text=delivery_msg,
-            reply_markup=main_menu_keyboard(),
             parse_mode="Markdown"
         )
         logger.info(f"OTP delivered to user {user_id} | OTP: {otp_code} | device_id: {device_id}")

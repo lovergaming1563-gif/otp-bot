@@ -252,11 +252,36 @@ async def main():
             received=received, total=total, is_last=is_last
         )
         bot = Bot(token=BOT_TOKEN)
+        message_id = session.get("message_id")
+        if message_id:
+            try:
+                from database import format_balance
+                from ui import header, field, card, DIV
+                price_str = format_balance(price)
+                delivered_text = (
+                    f"{header('ORDER COMPLETE', '✅', '✅')}\n\n"
+                    f"{field('Service', f'`{service_name}`', '🎯')}\n"
+                    f"{field('Number', f'`{number}`', '📱')}\n"
+                    f"{field('Charged', f'*{price_str}*', '💰')}\n\n"
+                    f"{card(['🏁  *Status:*  Delivered ✅', '', f'🔐  OTP Code:  `{otp_code}`'])}\n\n"
+                    f"{DIV}\n"
+                    f"✅  _OTP successfully delivered to your private chat._"
+                )
+                await bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=message_id,
+                    text=delivered_text,
+                    reply_markup=None,
+                    parse_mode="Markdown"
+                )
+                logger.info(f"[USERBOT] Edited waiting message {message_id} to complete for user {user_id}")
+            except Exception as me:
+                logger.warning(f"[USERBOT] Failed to edit waiting message {message_id} for user {user_id}: {me}")
+
         try:
             await bot.send_message(
                 chat_id=user_id,
                 text=delivery_msg,
-                reply_markup=main_menu_keyboard(),
                 parse_mode="Markdown"
             )
             logger.info(f"Userbot delivered OTP to user {user_id} | OTP: {otp_code}")
@@ -460,15 +485,43 @@ async def main():
                         service_name=service_name, number=number,
                         received=received, total=total, is_last=is_last
                     )
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=delivery_msg,
-                        reply_markup=main_menu_keyboard(),
-                        parse_mode="Markdown"
-                    )
-                    logger.info(f"[USERBOT] Pending OTP delivered to user {user_id} | OTP: {otp_code}")
-                  except Exception as _pe:
-                    logger.error(f"[USERBOT] pending_otp_checker item error: {_pe}")
+                    message_id = session.get("message_id")
+                    if message_id:
+                        try:
+                            from database import format_balance
+                            from ui import header, field, card, DIV
+                            price_str = format_balance(price)
+                            delivered_text = (
+                                f"{header('ORDER COMPLETE', '✅', '✅')}\n\n"
+                                f"{field('Service', f'`{service_name}`', '🎯')}\n"
+                                f"{field('Number', f'`{number}`', '📱')}\n"
+                                f"{field('Charged', f'*{price_str}*', '💰')}\n\n"
+                                f"{card(['🏁  *Status:*  Delivered ✅', '', f'🔐  OTP Code:  `{otp_code}`'])}\n\n"
+                                f"{DIV}\n"
+                                f"✅  _OTP successfully delivered to your private chat._"
+                            )
+                            await bot.edit_message_text(
+                                chat_id=user_id,
+                                message_id=message_id,
+                                text=delivered_text,
+                                reply_markup=None,
+                                parse_mode="Markdown"
+                            )
+                            logger.info(f"[USERBOT] Edited waiting message {message_id} to complete for user {user_id}")
+                        except Exception as me:
+                            logger.warning(f"[USERBOT] Failed to edit waiting message {message_id} for user {user_id}: {me}")
+
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=delivery_msg,
+                            parse_mode="Markdown"
+                        )
+                        logger.info(f"[USERBOT] Pending OTP delivered to user {user_id} | OTP: {otp_code}")
+                    except Exception as _pe:
+                        logger.error(f"[USERBOT] pending_otp_checker send error: {_pe}")
+                  except Exception as _item_err:
+                      logger.error(f"[USERBOT] pending_otp_checker item error: {_item_err}")
             except Exception as e:
                 logger.error(f"[USERBOT] pending_otp_checker error: {e}")
 
