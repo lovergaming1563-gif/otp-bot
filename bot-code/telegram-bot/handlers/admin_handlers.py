@@ -5766,11 +5766,11 @@ async def admin_unlock_locked_callback(update: Update, context: ContextTypes.DEF
     user_id = int(query.data.replace("admin_unlock_locked_", ""))
     db_user = await get_user(user_id)
     if db_user:
-        deposited = float(db_user.get("total_deposit", 0.0))
+        ref_earning = float(db_user.get("referral_earning", 0.0))
         from database import db
         await db.users.update_one(
             {"user_id": user_id},
-            {"$set": {"referral_earning": deposited}}
+            {"$set": {"weekly_deposit": ref_earning}}
         )
         await query.answer("Locked referral balance unlocked!", show_alert=True)
         await show_admin_user_info(update, context, user_id, is_callback=True)

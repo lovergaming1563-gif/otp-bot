@@ -2012,6 +2012,7 @@ async def weekly_season_reset() -> list:
         update_set = {
             "weekly_referrals": 0,
             "weekly_deposit": 0.0,
+            "referral_earning": 0.0,
             "last_season_tier": tier,
             "gold_streak_weeks": new_streak
         }
@@ -2019,7 +2020,6 @@ async def weekly_season_reset() -> list:
         update_inc = {}
         if locked > 0:
             update_inc["balance"] = -locked
-            update_inc["referral_earning"] = -locked
             
         if bonus_to_add > 0:
             update_inc["balance"] = update_inc.get("balance", 0.0) + bonus_to_add
