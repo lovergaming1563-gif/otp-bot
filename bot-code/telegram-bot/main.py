@@ -94,6 +94,7 @@ from handlers.admin_handlers import (
     admin_toggle_permission_callback, admin_activities_callback,
     admin_sales_stats_callback, admin_sales_stats_view_callback,
     admin_referral_explorer_callback, admin_referrer_details_callback,
+    admin_set_setting_callback,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -955,6 +956,7 @@ def main():
     app.add_handler(CallbackQueryHandler(check_important_join_callback, pattern="^check_important_join$"))
     
     app.add_handler(CallbackQueryHandler(admin_feature_settings_callback, pattern="^admin_feature_settings$"))
+    app.add_handler(CallbackQueryHandler(admin_set_setting_callback, pattern="^set_(tier_bronze|tier_silver|tier_gold|streak_weeks|streak_bonus|leaderboard_prize1|leaderboard_prize2|leaderboard_prize3|welcome_min|welcome_max|hh_start|hh_end|hh_pct|fake_guard_hours)$"))
     app.add_handler(CallbackQueryHandler(admin_reset_ref_callback, pattern="^admin_reset_ref_"))
     app.add_handler(CallbackQueryHandler(admin_unlock_locked_callback, pattern="^admin_unlock_locked_"))
     app.add_handler(CallbackQueryHandler(admin_set_streak_callback, pattern="^admin_set_streak_"))

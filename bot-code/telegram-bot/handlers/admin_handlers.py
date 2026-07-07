@@ -5391,6 +5391,47 @@ async def admin_feature_settings_callback(update: Update, context: ContextTypes.
     settings = await get_settings()
     await send_feature_settings_screen(query.edit_message_text, settings)
 
+async def admin_set_setting_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    # Check permissions (system settings/prices settings)
+    if not check_permission(query.from_user.id, "manage_system") and not check_permission(query.from_user.id, "manage_prices"):
+        await query.answer("❌ Access Denied: Aapko settings change karne ka access nahi hai.", show_alert=True)
+        return
+
+    action = query.data
+    context.user_data["admin_action"] = action
+
+    prompts = {
+        "set_tier_bronze": "Enter new Bronze Referral Tier amount (₹):",
+        "set_tier_silver": "Enter new Silver Referral Tier amount (₹):",
+        "set_tier_gold": "Enter new Gold Referral Tier amount (₹):",
+        "set_streak_weeks": "Enter new Streak Weeks Required (integer, e.g. 3):",
+        "set_streak_bonus": "Enter new Streak Bonus Amount (₹):",
+        "set_leaderboard_prize1": "Enter new 1st Place Leaderboard Prize (₹):",
+        "set_leaderboard_prize2": "Enter new 2nd Place Leaderboard Prize (₹):",
+        "set_leaderboard_prize3": "Enter new 3rd Place Leaderboard Prize (₹):",
+        "set_welcome_min": "Enter new Welcome Bonus Minimum (₹):",
+        "set_welcome_max": "Enter new Welcome Bonus Maximum (₹):",
+        "set_hh_start": "Enter new Happy Hours Start Time (format HH:MM, e.g. 18:00):",
+        "set_hh_end": "Enter new Happy Hours End Time (format HH:MM, e.g. 20:00):",
+        "set_hh_pct": "Enter new Happy Hours Bonus Percentage (%):",
+        "set_fake_guard_hours": "Enter new Fake Referral Guard Hours (integer, e.g. 48):",
+    }
+
+    prompt = prompts.get(action, "Enter new value:")
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_feature_settings")]])
+    
+    await query.edit_message_text(
+        f"⚙️ *Setting Config*\n\n{prompt}",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
 
 async def admin_reset_ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
