@@ -137,7 +137,7 @@ def back_keyboard():
 
 
 def admin_main_keyboard(user_id: int = None):
-    from config import ADMIN_ID
+    from config import ADMIN_ID, ADMIN_IDS
     from database import get_admin_cache
 
     if user_id is None:
@@ -145,7 +145,7 @@ def admin_main_keyboard(user_id: int = None):
         is_owner = True
         perms = []
     else:
-        is_owner = (user_id == ADMIN_ID)
+        is_owner = (user_id in ADMIN_IDS)
         perms = get_admin_cache().get(user_id, [])
 
     def has_p(permission_name: str) -> bool:

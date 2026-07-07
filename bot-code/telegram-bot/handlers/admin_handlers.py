@@ -45,7 +45,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def check_permission(user_id: int, permission: str) -> bool:
-    if user_id == ADMIN_ID:
+    if user_id in ADMIN_IDS:
         return True
     from database import get_admin_cache
     cache = get_admin_cache()
