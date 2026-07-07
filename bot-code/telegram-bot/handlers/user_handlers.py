@@ -472,13 +472,23 @@ async def refer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     earned = float(db_user.get("referral_earning", 0) or 0) if db_user else 0
     refs = int(db_user.get("total_referrals", 0) or 0) if db_user else 0
     
+    bronze_amt = settings.get('tier_bronze_amount', 5)
+    silver_amt = settings.get('tier_silver_amount', 10)
+    gold_amt = settings.get('tier_gold_amount', 15)
+    sil_lim = int(settings.get("tier_silver_limit", 6))
+    gold_lim = int(settings.get("tier_gold_limit", 16))
+    
+    bronze_range = f"1-{sil_lim-1}" if sil_lim > 2 else "1"
+    silver_range = f"{sil_lim}-{gold_lim-1}" if gold_lim > sil_lim + 1 else f"{sil_lim}"
+    gold_range = f"{gold_lim}+"
+
     text = (
         f"{header('REFER & EARN', '🎁', '🎁')}\n\n"
         f"💰 *Get instant commission when someone joins using your link!*\n\n"
         f"📊 *Commission Tiers (weekly referrals count):*\n"
-        f" ├ 1-5 refs: *₹{settings.get('tier_bronze_amount', 5):g}* per signup\n"
-        f" ├ 6-15 refs: *₹{settings.get('tier_silver_amount', 10):g}* per signup\n"
-        f" └ 16+ refs: *₹{settings.get('tier_gold_amount', 15):g}* per signup\n\n"
+        f" ├ {bronze_range} refs: *₹{bronze_amt:g}* per signup\n"
+        f" ├ {silver_range} refs: *₹{silver_amt:g}* per signup\n"
+        f" └ {gold_range} refs: *₹{gold_amt:g}* per signup\n\n"
         f"{card([f'🔗 *Tera Referral Link:*', f'`{ref_link}`', '', '👆 Long-press karke copy kar'])}\n\n"
         f"{DIV}\n"
         f"📊 *TERI EARNINGS:*\n\n"

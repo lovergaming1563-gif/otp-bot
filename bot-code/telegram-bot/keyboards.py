@@ -245,14 +245,14 @@ def admin_main_keyboard(user_id: int = None):
     if row10:
         keyboard.append(row10)
 
-    # Row 11: Last 50 OTPs, Sales Stats, Refer Explorer
+    # Row 11: Last 50 OTPs, Sales Stats, Referral Menu
     row11 = []
     if has_p("recent_otps"):
         row11.append(InlineKeyboardButton("📋 Last 50 OTPs", callback_data="admin_recent_otps"))
     if has_p("stats"):
         row11.append(InlineKeyboardButton("📈 Sales Stats", callback_data="admin_sales_stats"))
-    if has_p("users"):
-        row11.append(InlineKeyboardButton("👥 Refer Explorer", callback_data="admin_referrals_1"))
+    if has_p("users") or has_p("settings"):
+        row11.append(InlineKeyboardButton("👥 Referral Menu", callback_data="admin_referral_menu"))
     if row11:
         keyboard.append(row11)
 
@@ -591,6 +591,9 @@ def admin_stock_keyboard(services: list = None, summary: dict = None, page: int 
     ])
     keyboard.append([
         InlineKeyboardButton("📊 Sold OTPs", callback_data="admin_sold_otp"),
+        InlineKeyboardButton("⚠️ Cancelled Stock", callback_data="admin_bad_numbers"),
+    ])
+    keyboard.append([
         InlineKeyboardButton("🔙 Back", callback_data="admin_back"),
     ])
     # Paginated service buttons
@@ -782,23 +785,6 @@ def admin_feature_settings_keyboard(settings: dict):
     weekly_reset = settings.get("weekly_reset_enabled", True)
 
     keyboard = [
-        [InlineKeyboardButton("🥉 Bronze Amt", callback_data="set_tier_bronze"),
-         InlineKeyboardButton("🥈 Silver Amt", callback_data="set_tier_silver")],
-        [InlineKeyboardButton("🥇 Gold Amt", callback_data="set_tier_gold")],
-        
-        [InlineKeyboardButton(f"⭐ Streak: {'ON 🟢' if streak_enabled else 'OFF 🔴'}", callback_data="toggle_streak_enabled"),
-         InlineKeyboardButton("⭐ Streak Weeks", callback_data="set_streak_weeks")],
-        [InlineKeyboardButton("⭐ Streak Bonus Amt", callback_data="set_streak_bonus")],
-        
-        [InlineKeyboardButton(f"🏆 Leaderboard: {'ON 🟢' if leaderboard_enabled else 'OFF 🔴'}", callback_data="toggle_leaderboard_enabled")],
-        [InlineKeyboardButton("🏆 1st Prize", callback_data="set_leaderboard_prize1"),
-         InlineKeyboardButton("🏆 2nd Prize", callback_data="set_leaderboard_prize2")],
-        [InlineKeyboardButton("🏆 3rd Prize", callback_data="set_leaderboard_prize3")],
-        
-        [InlineKeyboardButton(f"🔔 Thu Rem: {'ON 🟢' if rem_thurs else 'OFF 🔴'}", callback_data="toggle_rem_thurs"),
-         InlineKeyboardButton(f"🔔 Sat 2hr Rem: {'ON 🟢' if rem_sun2h else 'OFF 🔴'}", callback_data="toggle_rem_sun2h")],
-        [InlineKeyboardButton(f"🔔 Sat 1hr Rem: {'ON 🟢' if rem_sun1h else 'OFF 🔴'}", callback_data="toggle_rem_sun1h")],
-        
         [InlineKeyboardButton(f"🎉 Welcome: {'ON 🟢' if welcome_enabled else 'OFF 🔴'}", callback_data="toggle_welcome_enabled"),
          InlineKeyboardButton("🎉 Welcome Min", callback_data="set_welcome_min")],
         [InlineKeyboardButton("🎉 Welcome Max", callback_data="set_welcome_max")],
@@ -808,13 +794,75 @@ def admin_feature_settings_keyboard(settings: dict):
         [InlineKeyboardButton("⚡ HH End", callback_data="set_hh_end"),
          InlineKeyboardButton("⚡ HH Bonus %", callback_data="set_hh_pct")],
          
+        [InlineKeyboardButton("🔙 Back to Settings", callback_data="admin_settings")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referral_menu_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("👥 Refer Explorer", callback_data="admin_referrals_1")],
+        [InlineKeyboardButton("💰 Tier Settings", callback_data="admin_ref_tiers"),
+         InlineKeyboardButton("⭐ Streak Settings", callback_data="admin_ref_streaks")],
+        [InlineKeyboardButton("🏆 Leaderboard Settings", callback_data="admin_ref_leaderboard"),
+         InlineKeyboardButton("🔒 Reset & Security", callback_data="admin_ref_security")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referral_tier_settings_keyboard(settings: dict):
+    keyboard = [
+        [InlineKeyboardButton("🥉 Bronze Amt", callback_data="set_tier_bronze"),
+         InlineKeyboardButton("🥈 Silver Amt", callback_data="set_tier_silver")],
+        [InlineKeyboardButton("🥇 Gold Amt", callback_data="set_tier_gold")],
+        [InlineKeyboardButton("🥈 Silver Limit (Count)", callback_data="set_tier_silver_limit"),
+         InlineKeyboardButton("🥇 Gold Limit (Count)", callback_data="set_tier_gold_limit")],
+        [InlineKeyboardButton("🔙 Back to Referral Menu", callback_data="admin_referral_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referral_streak_settings_keyboard(settings: dict):
+    streak_enabled = settings.get("streak_bonus_enabled", True)
+    keyboard = [
+        [InlineKeyboardButton(f"⭐ Streak: {'ON 🟢' if streak_enabled else 'OFF 🔴'}", callback_data="toggle_streak_enabled")],
+        [InlineKeyboardButton("⭐ Streak Weeks", callback_data="set_streak_weeks"),
+         InlineKeyboardButton("⭐ Streak Bonus Amt", callback_data="set_streak_bonus")],
+        [InlineKeyboardButton("🔙 Back to Referral Menu", callback_data="admin_referral_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referral_leaderboard_settings_keyboard(settings: dict):
+    leaderboard_enabled = settings.get("leaderboard_enabled", True)
+    keyboard = [
+        [InlineKeyboardButton(f"🏆 Leaderboard: {'ON 🟢' if leaderboard_enabled else 'OFF 🔴'}", callback_data="toggle_leaderboard_enabled")],
+        [InlineKeyboardButton("🏆 1st Prize", callback_data="set_leaderboard_prize1"),
+         InlineKeyboardButton("🏆 2nd Prize", callback_data="set_leaderboard_prize2")],
+        [InlineKeyboardButton("🏆 3rd Prize", callback_data="set_leaderboard_prize3")],
+        [InlineKeyboardButton("🔙 Back to Referral Menu", callback_data="admin_referral_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_referral_reset_security_keyboard(settings: dict):
+    rem_thurs = settings.get("reminder_thursday_enabled", True)
+    rem_sun2h = settings.get("reminder_sunday_2hr_enabled", True)
+    rem_sun1h = settings.get("reminder_sunday_1hr_enabled", True)
+    fake_guard = settings.get("fake_referral_guard_enabled", False)
+    trap_enabled = settings.get("trap_rule_enabled", True)
+    weekly_reset = settings.get("weekly_reset_enabled", True)
+
+    keyboard = [
+        [InlineKeyboardButton(f"🔄 Weekly Reset: {'ON 🟢' if weekly_reset else 'OFF 🔴'}", callback_data="toggle_weekly_reset")],
+        [InlineKeyboardButton(f"🔔 Thu Rem: {'ON 🟢' if rem_thurs else 'OFF 🔴'}", callback_data="toggle_rem_thurs"),
+         InlineKeyboardButton(f"🔔 Sat 2hr Rem: {'ON 🟢' if rem_sun2h else 'OFF 🔴'}", callback_data="toggle_rem_sun2h")],
+        [InlineKeyboardButton(f"🔔 Sat 1hr Rem: {'ON 🟢' if rem_sun1h else 'OFF 🔴'}", callback_data="toggle_rem_sun1h")],
         [InlineKeyboardButton(f"🛡️ Fake Guard: {'ON 🟢' if fake_guard else 'OFF 🔴'}", callback_data="toggle_fake_guard"),
          InlineKeyboardButton("🛡️ Guard Hours", callback_data="set_fake_guard_hours")],
-         
-        [InlineKeyboardButton(f"🔒 Trap Rule: {'ON 🟢' if trap_enabled else 'OFF 🔴'}", callback_data="toggle_trap_rule"),
-         InlineKeyboardButton(f"🔄 Toggle Weekly Reset: {'ON 🟢' if weekly_reset else 'OFF 🔴'}", callback_data="toggle_weekly_reset")],
-         
-        [InlineKeyboardButton("🔙 Back to Settings", callback_data="admin_settings")]
+        [InlineKeyboardButton(f"🔒 Trap Rule: {'ON 🟢' if trap_enabled else 'OFF 🔴'}", callback_data="toggle_trap_rule")],
+        [InlineKeyboardButton("🔙 Back to Referral Menu", callback_data="admin_referral_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -934,6 +982,42 @@ def admin_referrer_details_keyboard(referrer_id: int, page: int, has_next: bool)
         nav,
         [InlineKeyboardButton("🔙 Back to Referrers List", callback_data="admin_referrals_1")]
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def bad_numbers_keyboard(bad_list: list, page: int = 0, per_page: int = 5):
+    keyboard = []
+    total = len(bad_list)
+    start = page * per_page
+    end = start + per_page
+    page_list = bad_list[start:end]
+    
+    for item in page_list:
+        num = item["_id"]
+        count = item["cancel_count"]
+        keyboard.append([
+            InlineKeyboardButton(f"📱 {num} ({count} ❌)", callback_data="noop"),
+            InlineKeyboardButton("🗑 Clear", callback_data=f"clearbad_{num}_{page}")
+        ])
+    
+    # Navigation row
+    has_prev = page > 0
+    has_next = end < total
+    nav = []
+    if has_prev:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"badnav_{page - 1}"))
+    if total > 0:
+        total_pages = (total + per_page - 1) // per_page
+        nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
+    if has_next:
+        nav.append(InlineKeyboardButton("▶️ Next", callback_data=f"badnav_{page + 1}"))
+    if nav:
+        keyboard.append(nav)
+        
+    if bad_list:
+        keyboard.append([InlineKeyboardButton("🧹 Clear All Bad Numbers from Stock", callback_data="clearbadall")])
+        
+    keyboard.append([InlineKeyboardButton("🔙 Back to Stock", callback_data="admin_stock")])
     return InlineKeyboardMarkup(keyboard)
 
 

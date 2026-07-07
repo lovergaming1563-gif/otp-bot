@@ -95,6 +95,10 @@ from handlers.admin_handlers import (
     admin_sales_stats_callback, admin_sales_stats_view_callback,
     admin_referral_explorer_callback, admin_referrer_details_callback,
     admin_set_setting_callback,
+    admin_referral_menu_callback, admin_referral_tier_settings_callback,
+    admin_referral_streak_settings_callback, admin_referral_leaderboard_settings_callback,
+    admin_referral_reset_security_callback, admin_bad_numbers_callback,
+    admin_clear_bad_number_callback, admin_clear_all_bad_numbers_callback,
 )
 from handlers.user_handlers import redeem_promo_callback
 from otp_listener import group_message_listener
@@ -956,7 +960,18 @@ def main():
     app.add_handler(CallbackQueryHandler(check_important_join_callback, pattern="^check_important_join$"))
     
     app.add_handler(CallbackQueryHandler(admin_feature_settings_callback, pattern="^admin_feature_settings$"))
-    app.add_handler(CallbackQueryHandler(admin_set_setting_callback, pattern="^set_(tier_bronze|tier_silver|tier_gold|streak_weeks|streak_bonus|leaderboard_prize1|leaderboard_prize2|leaderboard_prize3|welcome_min|welcome_max|hh_start|hh_end|hh_pct|fake_guard_hours)$"))
+    app.add_handler(CallbackQueryHandler(admin_set_setting_callback, pattern="^set_(tier_bronze|tier_silver|tier_gold|tier_silver_limit|tier_gold_limit|streak_weeks|streak_bonus|leaderboard_prize1|leaderboard_prize2|leaderboard_prize3|welcome_min|welcome_max|hh_start|hh_end|hh_pct|fake_guard_hours)$"))
+    
+    app.add_handler(CallbackQueryHandler(admin_referral_menu_callback, pattern="^admin_referral_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_referral_tier_settings_callback, pattern="^admin_ref_tiers$"))
+    app.add_handler(CallbackQueryHandler(admin_referral_streak_settings_callback, pattern="^admin_ref_streaks$"))
+    app.add_handler(CallbackQueryHandler(admin_referral_leaderboard_settings_callback, pattern="^admin_ref_leaderboard$"))
+    app.add_handler(CallbackQueryHandler(admin_referral_reset_security_callback, pattern="^admin_ref_security$"))
+    
+    app.add_handler(CallbackQueryHandler(admin_bad_numbers_callback, pattern="^admin_bad_numbers$"))
+    app.add_handler(CallbackQueryHandler(admin_bad_numbers_callback, pattern=r"^badnav_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_clear_bad_number_callback, pattern="^clearbad_"))
+    app.add_handler(CallbackQueryHandler(admin_clear_all_bad_numbers_callback, pattern="^clearbadall$"))
     app.add_handler(CallbackQueryHandler(admin_reset_ref_callback, pattern="^admin_reset_ref_"))
     app.add_handler(CallbackQueryHandler(admin_unlock_locked_callback, pattern="^admin_unlock_locked_"))
     app.add_handler(CallbackQueryHandler(admin_set_streak_callback, pattern="^admin_set_streak_"))

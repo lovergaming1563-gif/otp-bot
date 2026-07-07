@@ -171,9 +171,11 @@ def get_referral_tier_amount(weekly_refs: int, settings: dict) -> float:
     bronze = float(settings.get("tier_bronze_amount", 5.0))
     silver = float(settings.get("tier_silver_amount", 10.0))
     gold = float(settings.get("tier_gold_amount", 15.0))
-    if weekly_refs >= 16:
+    silver_limit = int(settings.get("tier_silver_limit", 6))
+    gold_limit = int(settings.get("tier_gold_limit", 16))
+    if weekly_refs >= gold_limit:
         return gold
-    elif weekly_refs >= 6:
+    elif weekly_refs >= silver_limit:
         return silver
     else:
         return bronze
@@ -1978,9 +1980,11 @@ async def weekly_season_reset() -> list:
         locked = max(0.0, ref_earning - weekly_dep)
         
         # Determine last season tier
-        if weekly_refs >= 16:
+        silver_limit = int(settings.get("tier_silver_limit", 6))
+        gold_limit = int(settings.get("tier_gold_limit", 16))
+        if weekly_refs >= gold_limit:
             tier = "gold"
-        elif weekly_refs >= 6:
+        elif weekly_refs >= silver_limit:
             tier = "silver"
         elif weekly_refs >= 1:
             tier = "bronze"
@@ -2237,6 +2241,23 @@ async def get_referred_users(referrer_id: int) -> list:
         return await db.users.find({"referrer_id": referrer_id}).sort("join_date", -1).to_list(None)
     except Exception as e:
         logger.error(f"[DB] Failed to get referred users: {e}")
+        return []
+
+
+async def get_bad_numbers(limit: int = 50) -> list:
+    """Find numbers currently in stock that have been cancelled > 10 times."""
+    try:
+        pipeline = [
+            {"$match": {"action": "cancelled", "details.number": {"$exists": True}}},
+            {"$group": {"_id": "$details.number", "cancel_count": {"$sum": 1}}},
+            {"$match": {"cancel_count": {"$gt": 10}}},
+            {"$sort": {"cancel_count": -1}},
+            {"$limit": limit}
+        ]
+        cursor = db.logs.aggregate(pipeline)
+        return await cursor.to_list(None)
+    except Exception as e:
+        logger.error(f"[DB] Failed to get bad numbers: {e}")
         return []
 
 

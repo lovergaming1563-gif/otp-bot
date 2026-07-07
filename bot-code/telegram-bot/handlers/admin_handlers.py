@@ -2334,6 +2334,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "set_tier_bronze": ("tier_bronze_amount", float),
         "set_tier_silver": ("tier_silver_amount", float),
         "set_tier_gold": ("tier_gold_amount", float),
+        "set_tier_silver_limit": ("tier_silver_limit", int),
+        "set_tier_gold_limit": ("tier_gold_limit", int),
         "set_streak_weeks": ("streak_weeks_required", int),
         "set_streak_bonus": ("streak_bonus_amount", float),
         "set_leaderboard_prize1": ("leaderboard_prize_1", float),
@@ -2360,7 +2362,79 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             from database import get_settings as _get_settings
             settings = await _get_settings()
-            await send_feature_settings_screen(update.message.reply_text, settings)
+            
+            if action in ("set_tier_bronze", "set_tier_silver", "set_tier_gold", "set_tier_silver_limit", "set_tier_gold_limit"):
+                from keyboards import admin_referral_tier_settings_keyboard
+                bronze = settings.get("tier_bronze_amount", 5.0)
+                silver = settings.get("tier_silver_amount", 10.0)
+                gold = settings.get("tier_gold_amount", 15.0)
+                sil_lim = settings.get("tier_silver_limit", 6)
+                gold_lim = settings.get("tier_gold_limit", 16)
+                text_out = (
+                    f"💰 *Referral Tiers Config*\n\n"
+                    f"Bronze Tier (1-{sil_lim-1} refs): *₹{bronze:g}* per signup\n"
+                    f"Silver Tier ({sil_lim}-{gold_lim-1} refs): *₹{silver:g}* per signup\n"
+                    f"Gold Tier ({gold_lim}+ refs): *₹{gold:g}* per signup\n\n"
+                    f"Enter any new value using the buttons below:"
+                )
+                await update.message.reply_text(text_out, reply_markup=admin_referral_tier_settings_keyboard(settings), parse_mode="Markdown")
+            elif action in ("set_streak_weeks", "set_streak_bonus"):
+                from keyboards import admin_referral_streak_settings_keyboard
+                streak_enabled = settings.get("streak_bonus_enabled", True)
+                streak_status = "🟢 ON" if streak_enabled else "🔴 OFF"
+                weeks = settings.get("streak_weeks_required", 3)
+                bonus = settings.get("streak_bonus_amount", 50.0)
+                text_out = (
+                    f"⭐ *Referral Streak Settings*\n\n"
+                    f"Status: {streak_status}\n"
+                    f"Required Weeks: *{weeks}*\n"
+                    f"Bonus Amount: *₹{bonus:g}*\n"
+                )
+                await update.message.reply_text(text_out, reply_markup=admin_referral_streak_settings_keyboard(settings), parse_mode="Markdown")
+            elif action in ("set_leaderboard_prize1", "set_leaderboard_prize2", "set_leaderboard_prize3"):
+                from keyboards import admin_referral_leaderboard_settings_keyboard
+                leaderboard_enabled = settings.get("leaderboard_enabled", True)
+                leaderboard_status = "🟢 ON" if leaderboard_enabled else "🔴 OFF"
+                p1 = settings.get("leaderboard_prize_1", 100.0)
+                p2 = settings.get("leaderboard_prize_2", 60.0)
+                p3 = settings.get("leaderboard_prize_3", 30.0)
+                text_out = (
+                    f"🏆 *Weekly Leaderboard Settings*\n\n"
+                    f"Status: {leaderboard_status}\n"
+                    f"1st Prize: *₹{p1:g}*\n"
+                    f"2nd Prize: *₹{p2:g}*\n"
+                    f"3rd Prize: *₹{p3:g}*\n"
+                )
+                await update.message.reply_text(text_out, reply_markup=admin_referral_leaderboard_settings_keyboard(settings), parse_mode="Markdown")
+            elif action == "set_fake_guard_hours":
+                from keyboards import admin_referral_reset_security_keyboard
+                rem_thurs = settings.get("reminder_thursday_enabled", True)
+                rem_sun2h = settings.get("reminder_sunday_2hr_enabled", True)
+                rem_sun1h = settings.get("reminder_sunday_1hr_enabled", True)
+                fake_guard = settings.get("fake_referral_guard_enabled", False)
+                trap_enabled = settings.get("trap_rule_enabled", True)
+                weekly_reset = settings.get("weekly_reset_enabled", True)
+                
+                fake_guard_status = "🟢 ON" if fake_guard else "🔴 OFF"
+                fake_guard_hours = settings.get("fake_referral_guard_hours", 48)
+                trap_status = "🟢 ON" if trap_enabled else "🔴 OFF"
+                weekly_reset_status = "🟢 ON" if weekly_reset else "🔴 OFF"
+                thurs_status = "🟢 ON" if rem_thurs else "🔴 OFF"
+                sun2h_status = "🟢 ON" if rem_sun2h else "🔴 OFF"
+                sun1h_status = "🟢 ON" if rem_sun1h else "🔴 OFF"
+                
+                text_out = (
+                    f"🔒 *Weekly Reset & Security Config*\n\n"
+                    f"Weekly Reset: {weekly_reset_status}\n"
+                    f"Thursday Reminder: {thurs_status}\n"
+                    f"Saturday 2hr Reminder: {sun2h_status}\n"
+                    f"Saturday 1hr Reminder: {sun1h_status}\n"
+                    f"Fake Guard: {fake_guard_status} ({fake_guard_hours}h)\n"
+                    f"Trap Rule: {trap_status}\n"
+                )
+                await update.message.reply_text(text_out, reply_markup=admin_referral_reset_security_keyboard(settings), parse_mode="Markdown")
+            else:
+                await send_feature_settings_screen(update.message.reply_text, settings)
             return
         except Exception as e:
             await update.message.reply_text(f"❌ Invalid value: {e}. Try again:")
@@ -5411,6 +5485,8 @@ async def admin_set_setting_callback(update: Update, context: ContextTypes.DEFAU
         "set_tier_bronze": "Enter new Bronze Referral Tier amount (₹):",
         "set_tier_silver": "Enter new Silver Referral Tier amount (₹):",
         "set_tier_gold": "Enter new Gold Referral Tier amount (₹):",
+        "set_tier_silver_limit": "Enter new Silver Tier Referral Limit (integer count, e.g. 6):",
+        "set_tier_gold_limit": "Enter new Gold Tier Referral Limit (integer count, e.g. 16):",
         "set_streak_weeks": "Enter new Streak Weeks Required (integer, e.g. 3):",
         "set_streak_bonus": "Enter new Streak Bonus Amount (₹):",
         "set_leaderboard_prize1": "Enter new 1st Place Leaderboard Prize (₹):",
@@ -5425,12 +5501,241 @@ async def admin_set_setting_callback(update: Update, context: ContextTypes.DEFAU
     }
 
     prompt = prompts.get(action, "Enter new value:")
+    cancel_cbs = {
+        "set_tier_bronze": "admin_ref_tiers",
+        "set_tier_silver": "admin_ref_tiers",
+        "set_tier_gold": "admin_ref_tiers",
+        "set_tier_silver_limit": "admin_ref_tiers",
+        "set_tier_gold_limit": "admin_ref_tiers",
+        "set_streak_weeks": "admin_ref_streaks",
+        "set_streak_bonus": "admin_ref_streaks",
+        "set_leaderboard_prize1": "admin_ref_leaderboard",
+        "set_leaderboard_prize2": "admin_ref_leaderboard",
+        "set_leaderboard_prize3": "admin_ref_leaderboard",
+        "set_fake_guard_hours": "admin_ref_security",
+    }
+    cancel_cb = cancel_cbs.get(action, "admin_feature_settings")
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_feature_settings")]])
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data=cancel_cb)]])
     
     await query.edit_message_text(
         f"⚙️ *Setting Config*\n\n{prompt}",
         reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
+async def admin_referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from keyboards import admin_referral_menu_keyboard
+    await query.edit_message_text(
+        "👥 *Referral Settings & Management*\n\nSelect a sub-menu to view or modify settings:",
+        reply_markup=admin_referral_menu_keyboard(),
+        parse_mode="Markdown"
+    )
+
+async def admin_referral_tier_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from keyboards import admin_referral_tier_settings_keyboard
+    settings = await get_settings()
+    bronze = settings.get("tier_bronze_amount", 5.0)
+    silver = settings.get("tier_silver_amount", 10.0)
+    gold = settings.get("tier_gold_amount", 15.0)
+    sil_lim = settings.get("tier_silver_limit", 6)
+    gold_lim = settings.get("tier_gold_limit", 16)
+    text_out = (
+        f"💰 *Referral Tiers Config*\n\n"
+        f"Bronze Tier (1-{sil_lim-1} refs): *₹{bronze:g}* per signup\n"
+        f"Silver Tier ({sil_lim}-{gold_lim-1} refs): *₹{silver:g}* per signup\n"
+        f"Gold Tier ({gold_lim}+ refs): *₹{gold:g}* per signup\n\n"
+        f"Enter any new value using the buttons below:"
+    )
+    await query.edit_message_text(
+        text_out,
+        reply_markup=admin_referral_tier_settings_keyboard(settings),
+        parse_mode="Markdown"
+    )
+
+async def admin_referral_streak_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from keyboards import admin_referral_streak_settings_keyboard
+    settings = await get_settings()
+    streak_enabled = settings.get("streak_bonus_enabled", True)
+    streak_status = "🟢 ON" if streak_enabled else "🔴 OFF"
+    weeks = settings.get("streak_weeks_required", 3)
+    bonus = settings.get("streak_bonus_amount", 50.0)
+    text_out = (
+        f"⭐ *Referral Streak Settings*\n\n"
+        f"Status: {streak_status}\n"
+        f"Required Weeks: *{weeks}*\n"
+        f"Bonus Amount: *₹{bonus:g}*\n"
+    )
+    await query.edit_message_text(
+        text_out,
+        reply_markup=admin_referral_streak_settings_keyboard(settings),
+        parse_mode="Markdown"
+    )
+
+async def admin_referral_leaderboard_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from keyboards import admin_referral_leaderboard_settings_keyboard
+    settings = await get_settings()
+    leaderboard_enabled = settings.get("leaderboard_enabled", True)
+    leaderboard_status = "🟢 ON" if leaderboard_enabled else "🔴 OFF"
+    p1 = settings.get("leaderboard_prize_1", 100.0)
+    p2 = settings.get("leaderboard_prize_2", 60.0)
+    p3 = settings.get("leaderboard_prize_3", 30.0)
+    text_out = (
+        f"🏆 *Weekly Leaderboard Settings*\n\n"
+        f"Status: {leaderboard_status}\n"
+        f"1st Prize: *₹{p1:g}*\n"
+        f"2nd Prize: *₹{p2:g}*\n"
+        f"3rd Prize: *₹{p3:g}*\n"
+    )
+    await query.edit_message_text(
+        text_out,
+        reply_markup=admin_referral_leaderboard_settings_keyboard(settings),
+        parse_mode="Markdown"
+    )
+
+async def admin_referral_reset_security_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    from keyboards import admin_referral_reset_security_keyboard
+    settings = await get_settings()
+    rem_thurs = settings.get("reminder_thursday_enabled", True)
+    rem_sun2h = settings.get("reminder_sunday_2hr_enabled", True)
+    rem_sun1h = settings.get("reminder_sunday_1hr_enabled", True)
+    fake_guard = settings.get("fake_referral_guard_enabled", False)
+    trap_enabled = settings.get("trap_rule_enabled", True)
+    weekly_reset = settings.get("weekly_reset_enabled", True)
+    
+    fake_guard_status = "🟢 ON" if fake_guard else "🔴 OFF"
+    fake_guard_hours = settings.get("fake_referral_guard_hours", 48)
+    trap_status = "🟢 ON" if trap_enabled else "🔴 OFF"
+    weekly_reset_status = "🟢 ON" if weekly_reset else "🔴 OFF"
+    thurs_status = "🟢 ON" if rem_thurs else "🔴 OFF"
+    sun2h_status = "🟢 ON" if rem_sun2h else "🔴 OFF"
+    sun1h_status = "🟢 ON" if rem_sun1h else "🔴 OFF"
+    
+    text_out = (
+        f"🔒 *Weekly Reset & Security Config*\n\n"
+        f"Weekly Reset: {weekly_reset_status}\n"
+        f"Thursday Reminder: {thurs_status}\n"
+        f"Saturday 2hr Reminder: {sun2h_status}\n"
+        f"Saturday 1hr Reminder: {sun1h_status}\n"
+        f"Fake Guard: {fake_guard_status} ({fake_guard_hours}h)\n"
+        f"Trap Rule: {trap_status}\n"
+    )
+    await query.edit_message_text(
+        text_out,
+        reply_markup=admin_referral_reset_security_keyboard(settings),
+        parse_mode="Markdown"
+    )
+
+async def admin_bad_numbers_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+        
+    page = 0
+    if query.data.startswith("badnav_"):
+        page = int(query.data.replace("badnav_", ""))
+        
+    from database import get_bad_numbers
+    from keyboards import bad_numbers_keyboard
+    
+    bad_list = await get_bad_numbers()
+    text = (
+        f"⚠️ *Cancelled Stock Management* (Page {page+1})\n\n"
+        f"Neeche un numbers ki list hai jo *10 se zyada baar cancel* kiye gaye hain. "
+        f"Aap unhe stock se clear kar sakte hain taaki koi aur user unhe buy na kare:\n\n"
+    )
+    if not bad_list:
+        text += "_Aisa koi number nahi mila jise 10+ times cancel kiya gaya ho._"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=bad_numbers_keyboard(bad_list, page),
+        parse_mode="Markdown"
+    )
+
+async def admin_clear_bad_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("Access Denied")
+        return
+        
+    parts = query.data.replace("clearbad_", "").rsplit("_", 1)
+    number = parts[0]
+    page = int(parts[1]) if len(parts) > 1 else 0
+    
+    from database import db, get_bad_numbers
+    from keyboards import bad_numbers_keyboard
+    result = await db.stock.delete_many({"number": number})
+    
+    await query.answer(f"✅ {number} stock se clear kar diya! ({result.deleted_count} rows deleted)", show_alert=True)
+    
+    bad_list = await get_bad_numbers()
+    text = (
+        f"⚠️ *Cancelled Stock Management* (Page {page+1})\n\n"
+        f"Neeche un numbers ki list hai jo *10 se zyada baar cancel* kiye gaye hain. "
+        f"Aap unhe stock se clear kar sakte hain taaki koi aur user unhe buy na kare:\n\n"
+    )
+    if not bad_list:
+        text += "_Aisa koi number nahi mila jise 10+ times cancel kiya gaya ho._"
+        
+    await query.edit_message_text(
+        text,
+        reply_markup=bad_numbers_keyboard(bad_list, page),
+        parse_mode="Markdown"
+    )
+
+async def admin_clear_all_bad_numbers_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("Access Denied")
+        return
+        
+    from database import db, get_bad_numbers
+    from keyboards import bad_numbers_keyboard
+    
+    bad_list = await get_bad_numbers()
+    if not bad_list:
+        await query.answer("Clear karne ke liye koi bad numbers nahi mile.", show_alert=True)
+        return
+        
+    numbers = [x["_id"] for x in bad_list]
+    result = await db.stock.delete_many({"number": {"$in": numbers}})
+    
+    await query.answer(f"✅ Total {len(numbers)} bad numbers stock se delete kar diye! ({result.deleted_count} rows deleted)", show_alert=True)
+    
+    bad_list = await get_bad_numbers()
+    text = (
+        f"⚠️ *Cancelled Stock Management*\n\n"
+        f"Neeche un numbers ki list hai jo *10 se zyada baar cancel* kiye gaye hain. "
+        f"Aap unhe stock se clear kar sakte hain taaki koi aur user unhe buy na kare:\n\n"
+    )
+    text += "_Aisa koi number nahi mila jise 10+ times cancel kiya gaya ho._"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=bad_numbers_keyboard(bad_list, 0),
         parse_mode="Markdown"
     )
 
