@@ -161,9 +161,9 @@ async def get_user(user_id):
     return await db.users.find_one({"user_id": user_id})
 
 
-def compute_referral_lock(referral_earning: float, total_deposit: float) -> dict:
-    usable = min(float(referral_earning), float(total_deposit))
-    locked = max(0.0, float(referral_earning) - float(total_deposit))
+def compute_referral_lock(referral_earning: float, weekly_deposit: float) -> dict:
+    usable = min(float(referral_earning), float(weekly_deposit))
+    locked = max(0.0, float(referral_earning) - float(weekly_deposit))
     return {"usable": usable, "locked": locked}
 
 
@@ -186,6 +186,7 @@ async def create_user(user_id: int, username: str, first_name: str, referrer_id:
         "first_name": first_name,
         "balance": 0.0,
         "total_deposit": 0.0,
+        "weekly_deposit": 0.0,
         "total_spent": 0.0,
         "referral_earning": 0.0,
         "referrer_id": referrer_id,
@@ -744,7 +745,7 @@ async def approve_deposit(deposit_id: str, amount: float):
     if result:
         await db.users.update_one(
             {"user_id": result["user_id"]},
-            {"$inc": {"balance": amount, "total_deposit": amount}}
+            {"$inc": {"balance": amount, "total_deposit": amount, "weekly_deposit": amount}}
         )
         return result
     return None
@@ -763,7 +764,7 @@ async def reject_deposit(deposit_id: str):
 async def add_balance_manual(user_id: int, amount: float):
     await db.users.update_one(
         {"user_id": user_id},
-        {"$inc": {"balance": amount, "total_deposit": amount}}
+        {"$inc": {"balance": amount, "total_deposit": amount, "weekly_deposit": amount}}
     )
 
 
@@ -982,6 +983,7 @@ async def reset_all_stats():
     await db.sessions.delete_many({"status": {"$in": ["delivered", "cancelled", "expired"]}})
     await db.users.update_many({}, {"$set": {
         "total_deposit": 0.0,
+        "weekly_deposit": 0.0,
         "total_spent": 0.0,
         "referral_earning": 0.0,
         "total_referrals": 0,
@@ -1691,7 +1693,7 @@ async def auto_approve_deposit_with_utr(user_id: int, amount: float, utr: str,
     # 4. Credit user balance.
     await db.users.update_one(
         {"user_id": user_id},
-        {"$inc": {"balance": float(amount), "total_deposit": float(amount)}}
+        {"$inc": {"balance": float(amount), "total_deposit": float(amount), "weekly_deposit": float(amount)}}
     )
     return deposit_id
 
@@ -1970,10 +1972,10 @@ async def weekly_season_reset() -> list:
         uid = u["user_id"]
         weekly_refs = u.get("weekly_referrals", 0)
         ref_earning = float(u.get("referral_earning", 0.0))
-        deposited = float(u.get("total_deposit", 0.0))
+        weekly_dep = float(u.get("weekly_deposit", 0.0))
         
         # Calculate locked
-        locked = max(0.0, ref_earning - deposited)
+        locked = max(0.0, ref_earning - weekly_dep)
         
         # Determine last season tier
         if weekly_refs >= 16:
@@ -2005,6 +2007,7 @@ async def weekly_season_reset() -> list:
         # Build update document
         update_set = {
             "weekly_referrals": 0,
+            "weekly_deposit": 0.0,
             "last_season_tier": tier,
             "gold_streak_weeks": new_streak
         }

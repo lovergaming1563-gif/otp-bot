@@ -5245,8 +5245,9 @@ async def show_admin_user_info(update: Update, context: ContextTypes.DEFAULT_TYP
     bal = float(db_user.get("balance", 0.0))
     ref_earning = float(db_user.get("referral_earning", 0.0))
     deposited = float(db_user.get("total_deposit", 0.0))
+    weekly_dep = float(db_user.get("weekly_deposit", 0.0))
     
-    locks = compute_referral_lock(ref_earning, deposited)
+    locks = compute_referral_lock(ref_earning, weekly_dep)
     ref_usable = locks["usable"]
     ref_locked = locks["locked"]
     personal_dep = max(0.0, bal - ref_earning)
@@ -5274,7 +5275,8 @@ async def show_admin_user_info(update: Update, context: ContextTypes.DEFAULT_TYP
         f"📦 *Active Order:* {active_order}\n\n"
         f"💳 *BALANCE BREAKDOWN*\n"
         f" ├ Total Balance: *{format_balance(bal)}*\n"
-        f" ├ Personal Deposit: *{format_balance(personal_dep)}*\n"
+        f" ├ Personal Deposit (Lifetime): *{format_balance(personal_dep)}*\n"
+        f" ├ Weekly Deposit: *{format_balance(weekly_dep)}*\n"
         f" ├ Referral Earned: *{format_balance(ref_earning)}*\n"
         f" ├ Referral Usable: *{format_balance(ref_usable)}*\n"
         f" └ Referral Locked: *{format_balance(ref_locked)}*\n\n"

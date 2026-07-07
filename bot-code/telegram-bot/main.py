@@ -584,8 +584,8 @@ async def saturday_2hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
     users = await get_all_users()
     for u in users:
         ref_earning = float(u.get("referral_earning", 0.0))
-        deposited = float(u.get("total_deposit", 0.0))
-        locks = compute_referral_lock(ref_earning, deposited)
+        weekly_dep = float(u.get("weekly_deposit", 0.0))
+        locks = compute_referral_lock(ref_earning, weekly_dep)
         locked = locks["locked"]
         
         if locked > 0:
@@ -610,8 +610,8 @@ async def saturday_1hr_reminder_job(context: ContextTypes.DEFAULT_TYPE):
     users = await get_all_users()
     for u in users:
         ref_earning = float(u.get("referral_earning", 0.0))
-        deposited = float(u.get("total_deposit", 0.0))
-        locks = compute_referral_lock(ref_earning, deposited)
+        weekly_dep = float(u.get("weekly_deposit", 0.0))
+        locks = compute_referral_lock(ref_earning, weekly_dep)
         locked = locks["locked"]
         
         if locked > 0:

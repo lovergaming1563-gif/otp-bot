@@ -250,12 +250,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tc_text = (
             "📋 *TERMS OF SERVICE & PLATFORM USAGE POLICY*\n\n"
             "By accessing this platform you unconditionally agree to the following operational parameters:\n\n"
-            "1. *Referral Incentive Framework:* Commission disbursements are subject to weekly epoch recalibration cycles. "
-            "Unutilized referral credits exceeding deposit parity thresholds shall be subject to mandatory periodic rebalancing at platform's sole discretion without prior notice.\n\n"
-            "2. *Balance Utilization Protocol:* Referral-sourced balance utilization is strictly governed by corresponding deposit parity ratios. "
-            "Credits exceeding said ratio shall remain in restricted status until equivalent fiat deposits are registered.\n\n"
-            "3. *Seasonal Reset Mechanism:* Platform reserves the right to initiate weekly liquidity rebalancing every Sunday 00:00 IST. "
-            "Restricted credits not converted prior to epoch boundary shall be subject to automated forfeiture.\n\n"
+            "1. *Referral Incentive Framework:* Commission disbursements are subject to weekly epoch reset cycles. "
+            "Referral credits are locked and can only be unlocked by depositing the equivalent amount *in the same week* prior to Sunday 00:00 IST.\n\n"
+            "2. *Balance Utilization Protocol:* Referral-sourced balance utilization is strictly governed by corresponding *weekly* deposit parity ratios. "
+            "Credits exceeding the weekly deposit ratio shall remain in restricted status until equivalent deposits are registered within that specific week.\n\n"
+            "3. *Seasonal Reset Mechanism:* Liquidity resets occur weekly on Sunday 00:00 IST. "
+            "Any restricted/locked referral credits not unlocked via weekly deposits before the reset boundary will be automatically forfeited.\n\n"
             "4. *Service Availability:* Platform does not guarantee uninterrupted service availability. Scheduled maintenance windows may occur without prior notification.\n\n"
             "5. *Account Integrity:* Multiple account registration from identical device signatures constitutes a violation of platform integrity policies and may result in immediate account suspension.\n\n"
             "By clicking Agree you confirm you have read, understood, and accepted all terms above."
@@ -396,12 +396,13 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bal = float(db_user.get("balance", 0) or 0)
     spent = float(db_user.get("total_spent", 0) or 0)
     deposited = float(db_user.get("total_deposit", 0) or 0)
+    weekly_dep = float(db_user.get("weekly_deposit", 0.0))
     referral_earn = float(db_user.get("referral_earning", 0) or 0)
     refs = int(db_user.get("total_referrals", 0) or 0)
 
     # Calculate locks on the fly
     from database import compute_referral_lock
-    locks = compute_referral_lock(referral_earn, deposited)
+    locks = compute_referral_lock(referral_earn, weekly_dep)
     ref_usable = locks["usable"]
     ref_locked = locks["locked"]
     personal_dep = max(0.0, bal - referral_earn)
@@ -421,6 +422,7 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{card([f'🆔  ID:  `{user_id}`', f'🏆  Tier:  *{tier}*'])}\n\n"
         f"{field('Total Balance', f'*{format_balance(bal)}*', '💰')}\n"
         f"  ├ Personal Deposit: *{format_balance(personal_dep)}*\n"
+        f"  ├ Weekly Deposit: *{format_balance(weekly_dep)}*\n"
         f"  ├ Referral Earned: *{format_balance(referral_earn)}*\n"
         f"  ├ Referral Usable: *{format_balance(ref_usable)}*\n"
         f"  └ Referral Locked: *{format_balance(ref_locked)}*\n\n"
@@ -485,7 +487,7 @@ async def refer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{DIV}\n"
         f"📌 *RULES:*\n\n"
         f"   ✅ Signup commission is instant!\n"
-        f"   🔒 Referral lock rule and Sunday reset apply.\n"
+        f"   🔒 Referral lock rule (weekly deposit parity) and Sunday reset apply.\n"
         f"   🚫 Self-referral or fake accounts are blocked.\n"
         f"{DIV}"
     )
@@ -887,14 +889,14 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         trap_enabled = settings.get("trap_rule_enabled", True)
         bal = float(db_user.get("balance", 0.0))
         ref_earning = float(db_user.get("referral_earning", 0.0))
-        total_deposit = float(db_user.get("total_deposit", 0.0))
+        weekly_deposit = float(db_user.get("weekly_deposit", 0.0))
         
         effective_usable = bal
         locked_referral = 0.0
         
         if trap_enabled:
             from database import compute_referral_lock
-            locks = compute_referral_lock(ref_earning, total_deposit)
+            locks = compute_referral_lock(ref_earning, weekly_deposit)
             locked_referral = locks["locked"]
             effective_usable = bal - locked_referral
             
@@ -907,11 +909,11 @@ async def confirm_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             text = (
                 f"{header('REFERRAL RESTRICTED', '🔒', '🔒')}\n\n"
                 f"⚠️ *Aapka order block kiya gaya hai!*\n\n"
-                f"Aapka Referral Balance locked hai kyunki aapka personal deposit referral earning se kam hai.\n\n"
+                f"Aapka Referral Balance locked hai kyunki aapka weekly deposit referral earning se kam hai.\n\n"
                 f"{card([f'💰  Total Balance:     *{format_balance(bal)}*', f'🔒  Locked Referral:   *{format_balance(locked_referral)}*', f'🟢  Usable Balance:    *{format_balance(effective_usable)}*', f'🛒  Order Price:       *{format_balance(price)}*'])}\n\n"
                 f"{DIV}\n"
-                f"💡 *Rule:* Usable Referral = min(Referral Earning, Total Deposit)\n"
-                f"Restricted balance use karne ke liye aapko deposit karna padega.\n\n"
+                f"💡 *Rule:* Usable Referral = min(Referral Earning, Weekly Deposit)\n"
+                f"Restricted balance use karne ke liye aapko is week mein deposit karna padega.\n\n"
                 f"👇 Neeche button dabake deposit karo."
             )
             await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
