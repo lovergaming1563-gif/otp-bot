@@ -206,7 +206,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database import get_upi_id, get_min_deposit, get_settings
         from ui import header, card, DIV
         from handlers.user_handlers import _generate_unique_amount, _make_payment_qr
-        from keyboards import payment_method_select_keyboard
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup as _IKM
         import os
         raw = update.message.text.strip().replace("₹", "").replace(",", "").strip()
@@ -230,50 +229,105 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
-        exact_amount  = amount                             # Rocket (no paise randomisation)
 
-        context.user_data["deposit_amount"] = exact_amount
-        context.user_data["exact_amount"]   = exact_amount
-        context.user_data.pop("waiting_for", None)
-        context.user_data.pop("paid_check_count", None)
+        settings = await get_settings()
+        rocket_enabled = settings.get("rocket_payment_enabled", False)
 
         from config import ZAP_KEY
-        import time as _time
-        import asyncio as _asyncio
-        from handlers.user_handlers import _zap_create_order
-        if not ZAP_KEY:
-            await update.message.reply_text(
-                "⚠️ *Rocket payment configured nahi hai.*\nAdmin se `ZAP_KEY` set karne ko kaho.",
-                parse_mode="Markdown"
+        if rocket_enabled and ZAP_KEY:
+            exact_amount  = amount                             # Rocket (no paise randomisation)
+            context.user_data["deposit_amount"] = exact_amount
+            context.user_data["exact_amount"]   = exact_amount
+            context.user_data.pop("waiting_for", None)
+            context.user_data.pop("paid_check_count", None)
+
+            import time as _time
+            import asyncio as _asyncio
+            from handlers.user_handlers import _zap_create_order
+
+            order_id = f"dep_{update.effective_user.id}_{int(exact_amount * 100)}_{int(_time.time())}"
+            context.user_data["rocket_order_id"] = order_id
+            context.user_data["payment_method"]  = "rocket"
+            wait_msg = await update.message.reply_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
+            try:
+                result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, exact_amount)
+            except Exception as e:
+                logger.error(f"Error in rocket payment creation: {e}")
+                result = {"status": "error", "message": str(e)}
+
+            if result.get("status") != "success":
+                err_msg = result.get("message", "Order create karne mein error aaya.")
+                await wait_msg.edit_text(
+                    f"❌ *Rocket payment start nahi ho sakti.*\n\n_{err_msg}_",
+                    parse_mode="Markdown"
+                )
+                return
+            payment_url = result.get("payment_url", "")
+            pay_kb = _IKM([
+                [InlineKeyboardButton("🔗 Pay Now — Rocket", url=payment_url)],
+                [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"rocket_paid_{order_id}")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
+            ])
+            payment_text = (
+                f"{header(f'PAY ₹{exact_amount:.0f}', '🚀', '🚀')}\n\n"
+                f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
+                f"{DIV}\n"
+                f"⚠️  *Exactly ₹{exact_amount:.0f} hi bhejo.*\n"
+                f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
             )
+            await wait_msg.edit_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
             return
-        order_id = f"dep_{update.effective_user.id}_{int(exact_amount * 100)}_{int(_time.time())}"
-        context.user_data["rocket_order_id"] = order_id
-        context.user_data["payment_method"]  = "rocket"
-        wait_msg = await update.message.reply_text("⏳ *Rocket payment link bana raha hai...*", parse_mode="Markdown")
-        result = await _asyncio.to_thread(_zap_create_order, ZAP_KEY, order_id, exact_amount)
-        if result.get("status") != "success":
-            err_msg = result.get("message", "Order create karne mein error aaya.")
-            await wait_msg.edit_text(
-                f"❌ *Rocket payment start nahi ho sakti.*\n\n_{err_msg}_",
-                parse_mode="Markdown"
+        else:
+            upi_id = await get_upi_id()
+            if not upi_id:
+                await update.message.reply_text(
+                    "⚠️ *Deposit option currently unavailable hai.*\nAdmin se UPI ID set karne ko kaho.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            exact_amount = _generate_unique_amount(amount)
+            context.user_data["deposit_amount"] = exact_amount
+            context.user_data["exact_amount"]   = exact_amount
+            context.user_data["payment_method"]  = "upi"
+            context.user_data["waiting_for"]    = "screenshot"
+            context.user_data.pop("paid_check_count", None)
+
+            qr_buf = _make_payment_qr(upi_id, exact_amount)
+            cancel_kb = _IKM([
+                [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")]
+            ])
+
+            caption_text = (
+                f"{header(f'PAY ₹{exact_amount:.2f}', '💳', '💳')}\n\n"
+                f"{card([f'🏦  *UPI ID:*  `{upi_id}`', f'💰  *Pay Exact Amount:*  `₹{exact_amount:.2f}`', '⚡  *Verification Paise added*'])}\n\n"
+                f"{DIV}\n"
+                f"⚠️  *IMPORTANT:* Pay exactly *₹{exact_amount:.2f}* (including paise) so we can match your payment.\n\n"
+                f"📸  Payment successfully karne ke baad *screenshot bheinjiye* (image send karein)."
             )
+
+            if qr_buf:
+                try:
+                    await update.message.reply_photo(
+                        photo=qr_buf,
+                        caption=caption_text,
+                        reply_markup=cancel_kb,
+                        parse_mode="Markdown"
+                    )
+                except Exception as qr_err:
+                    logger.error(f"Failed to send QR photo: {qr_err}")
+                    await update.message.reply_text(
+                        caption_text,
+                        reply_markup=cancel_kb,
+                        parse_mode="Markdown"
+                    )
+            else:
+                await update.message.reply_text(
+                    caption_text,
+                    reply_markup=cancel_kb,
+                    parse_mode="Markdown"
+                )
             return
-        payment_url = result.get("payment_url", "")
-        pay_kb = _IKM([
-            [InlineKeyboardButton("🔗 Pay Now — Rocket", url=payment_url)],
-            [InlineKeyboardButton("✅ Maine Pay Kar Diya", callback_data=f"rocket_paid_{order_id}")],
-            [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")],
-        ])
-        payment_text = (
-            f"{header(f'PAY ₹{exact_amount:.0f}', '🚀', '🚀')}\n\n"
-            f"{card(['🚀  *Payment Method:*  Rocket', f'💰  *Amount:*  ₹{exact_amount:.0f}', '📲  Neeche link pe tap karke pay karo'])}\n\n"
-            f"{DIV}\n"
-            f"⚠️  *Exactly ₹{exact_amount:.0f} hi bhejo.*\n"
-            f"👇  Payment ke baad *'✅ Maine Pay Kar Diya'* button dabao."
-        )
-        await wait_msg.edit_text(payment_text, reply_markup=pay_kb, parse_mode="Markdown")
-        return
     await update.message.reply_text("Use the menu buttons to navigate.")
 
 
